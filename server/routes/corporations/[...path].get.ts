@@ -1,4 +1,6 @@
 import { getCacheFilename } from '../../utils/cacheUtils';
+import { generateETagForFile } from '../../utils/hashUtils';
+import { getHeader } from 'h3';
 
 export default defineEventHandler(async (event) => {
     // Example: 11568/bpc
@@ -8,12 +10,22 @@ export default defineEventHandler(async (event) => {
     const cachePath = getCacheFilename(id, query, 'png', './cache/corporations');
 
     const image = await getImage(id, query);
+    const etag = await generateETagForFile(cachePath);
+    const ifNoneMatch = getHeader(event, 'if-none-match');
+    if (ifNoneMatch === etag) {
+        return new Response(null, {
+            status: 304,
+            headers: {
+                'ETag': etag
+            }
+        });
+    }
     return new Response(image, {
         headers: {
             'Content-Type': 'image/png',
             'Cache-Control': 'public, max-age=2592000',
             'Vary': 'Accept-Encoding',
-            'ETag': 'W/"' + image.byteLength.toString() + '"',
+            'ETag': etag,
             'Last-Modified': new Date(Bun.file(cachePath).lastModified).toUTCString(),
             'Accept-Ranges': 'bytes',
             'Expires': new Date(Date.now() + 2592000).toUTCString()
