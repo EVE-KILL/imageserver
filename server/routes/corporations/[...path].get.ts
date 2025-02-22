@@ -1,40 +1,33 @@
 import { getCacheFilename } from '../../utils/cacheUtils';
 import { generateETagForFile } from '../../utils/hashUtils';
-import { getHeader } from 'h3';
+import { getHeader, getQuery } from 'h3';
 import { convertToWebp } from '../../utils/convertToWebp';
+import { resizeImage } from '../../utils/resizeImage';
 
 export default defineEventHandler(async (event) => {
     const path = event.context.params.path;
     const [id, type] = path.split('/');
-    const query = getQuery(event) || {};
 
-    // Check if the browser accepts WebP
+    // Fetch query parameters; extract and remove "size" so it isn’t passed upstream.
+    const params = getQuery(event) || {};
+    const requestedSize = params.size ? parseInt(params.size, 10) : null;
+    delete params.size;
+
+    // Check for WebP support.
     const acceptHeader = getHeader(event, 'accept') || '';
     const webpRequested = acceptHeader.includes('image/webp');
     const desiredExt = webpRequested ? 'webp' : 'png';
-    const cachePath = getCacheFilename(id, query, desiredExt, './cache/corporations');
 
-    let image: ArrayBuffer;
-    if (webpRequested) {
-        if (await Bun.file(cachePath).exists()) {
-            image = await Bun.file(cachePath).arrayBuffer();
-        } else {
-            // Get original PNG image then convert to WebP and cache it.
-            const originalImage = await getImage(id, query);
-            image = await convertToWebp(originalImage);
-            await Bun.file(cachePath).write(image);
-        }
-    } else {
-        image = await getImage(id, query);
-    }
+    // Construct cache path. If a resize is requested, include size in the name.
+    let cachePath = requestedSize
+        ? `./cache/corporations/${id}-${requestedSize}.${desiredExt}`
+        : getCacheFilename(id, params, desiredExt, './cache/corporations');
 
+    const image = await loadOrProcessImage(id, cachePath, requestedSize, webpRequested);
     const etag = await generateETagForFile(cachePath);
     const ifNoneMatch = getHeader(event, 'if-none-match');
     if (ifNoneMatch === etag) {
-        return new Response(null, {
-            status: 304,
-            headers: { 'ETag': etag }
-        });
+        return new Response(null, { status: 304, headers: { 'ETag': etag } });
     }
     return new Response(image, {
         headers: {
@@ -49,35 +42,28 @@ export default defineEventHandler(async (event) => {
     });
 });
 
-async function fetchImage(id: string): Promise<ArrayBuffer> {
-  const url = `https://images.evetech.net/corporations/${id}/logo`;
-  const response = await fetch(url);
-  return await response.arrayBuffer();
-}
-
-async function storeImage(id: string, image: ArrayBuffer, query: Record<string, string>): Promise<void> {
-  const cachePath = getCacheFilename(id, query, 'png', './cache/corporations');
-  await Bun.file(cachePath).write(image);
-}
-
-async function imageExists(id: string, query: Record<string, string>): Promise<boolean> {
-  const cachePath = getCacheFilename(id, query, 'png', './cache/corporations');
-  if (!(await Bun.file(cachePath).exists())) return false;
-  const stats = await Bun.file(cachePath).stat();
-  const imageAge = (Date.now() - stats.mtimeMs) / 1000;
-  if (imageAge > 30 * 24 * 60 * 60) {
-    await Bun.file(cachePath).delete();
-    return false;
-  }
-  return true;
-}
-
-async function getImage(id: string, query: Record<string, string>): Promise<ArrayBuffer> {
-  if (await imageExists(id, query)) {
-    const cachePath = getCacheFilename(id, query, 'png', './cache/corporations');
-    return await Bun.file(cachePath).arrayBuffer();
-  }
-  const image = await fetchImage(id);
-  await storeImage(id, image, query);
-  return image;
+// Helper: load or process image from upstream.
+// Always fetch full quality from the upstream URL (without ?size), then resize if requested and convert if needed.
+async function loadOrProcessImage(
+    id: string,
+    cachePath: string,
+    requestedSize: number | null,
+    webpRequested: boolean
+): Promise<ArrayBuffer> {
+    if (await Bun.file(cachePath).exists()) {
+        return await Bun.file(cachePath).arrayBuffer();
+    }
+    // Build upstream URL without any size parameter.
+    const url = `https://images.evetech.net/corporations/${id}/logo`;
+    const res = await fetch(url);
+    let original = await res.arrayBuffer();
+    let processed = original;
+    if (requestedSize) {
+        processed = await resizeImage(original, requestedSize);
+    }
+    if (webpRequested) {
+        processed = await convertToWebp(processed);
+    }
+    await Bun.file(cachePath).write(processed);
+    return processed;
 }
