@@ -1,0 +1,7 @@
+.github/
+.nitro/
+.output/
+cache/
+images/
+node_modules/
+types/
