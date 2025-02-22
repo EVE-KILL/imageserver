@@ -1,6 +1,7 @@
-import { getHeader } from 'h3';
+import { getHeader, getQuery } from 'h3';
 import { generateETagForFile } from '../../utils/hashUtils';
 import { convertToWebp } from '../../utils/convertToWebp';
+import { resizeImage } from '../../utils/resizeImage';
 
 // Load the service_metadata.json into memory
 const serviceMetadata = await (Bun.file('./images/service_metadata.json')).json();
@@ -24,28 +25,54 @@ export default defineEventHandler(async (event) => {
     const imagePath = data[type];
     const fullImagePath = `./images/${imagePath}`;
 
-    // Check if the client accepts WebP
+    // Retrieve query parameters
+    const query = getQuery(event) || {};
+    // Determine if WebP is requested
     const acceptHeader = getHeader(event, 'accept') || '';
     const webpRequested = acceptHeader.includes('image/webp');
+    // Determine if a resize is requested
+    const validSizes = [8,16,32,64,128,256,512,1024];
+    const sizeParam = parseInt(query.size, 10);
+    const requestedSize = validSizes.includes(sizeParam) ? sizeParam : null;
 
-    // When WebP is requested, store/load the converted file from cache (e.g. cache/types)
+    // Determine desired extension and cache file name.
+    // For a resized image, include the size in the cache filename.
+    let cachePath = '';
+    if (requestedSize) {
+        cachePath = `./cache/types/${id}-${type}-${requestedSize}.${webpRequested ? 'webp' : 'png'}`;
+    } else if (webpRequested) {
+        cachePath = `./cache/types/${id}-${type}.webp`;
+    } else {
+        // No conversion; serve original image.
+        cachePath = fullImagePath;
+    }
+
     let image: ArrayBuffer;
-    let etag: string;
-    if (webpRequested) {
-        const cachePath = `./cache/types/${id}-${type}.webp`;
+    if (requestedSize || webpRequested) {
         if (await Bun.file(cachePath).exists()) {
             image = await Bun.file(cachePath).arrayBuffer();
         } else {
+            // Load original image
             const originalImage = await (Bun.file(fullImagePath)).arrayBuffer();
-            image = await convertToWebp(originalImage);
-            await Bun.file(cachePath).write(image);
+            // If resizing is requested, process it.
+            let processedImage = originalImage;
+            if (requestedSize) {
+                processedImage = await resizeImage(originalImage, requestedSize);
+            }
+            // If WebP is also requested, then convert processed image to WebP.
+            if (webpRequested) {
+                processedImage = await convertToWebp(processedImage);
+            }
+            // Write processed version to cache
+            await Bun.file(cachePath).write(processedImage);
+            image = processedImage;
         }
-        etag = await generateETagForFile(cachePath);
     } else {
+        // No size or webp conversion; serve original image.
         image = await (Bun.file(fullImagePath)).arrayBuffer();
-        etag = await generateETagForFile(fullImagePath);
     }
 
+    const etag = await generateETagForFile(cachePath);
     const ifNoneMatch = getHeader(event, 'if-none-match');
     if (ifNoneMatch === etag) {
         return new Response(null, {
