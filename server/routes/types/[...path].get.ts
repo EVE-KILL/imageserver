@@ -1,5 +1,6 @@
 import { getHeader } from 'h3';
 import { generateETagForFile } from '../../utils/hashUtils';
+import { convertToWebp } from '../../utils/convertToWebp';
 
 // Load the service_metadata.json into memory
 const serviceMetadata = await (Bun.file('./images/service_metadata.json')).json();
@@ -19,12 +20,33 @@ export default defineEventHandler(async (event) => {
         return { error: 'Type not defined', validTypes: Object.keys(data) };
     }
 
-    // Select the image based on the type
+    // Original image path (unchanged)
     const imagePath = data[type];
     const fullImagePath = `./images/${imagePath}`;
 
+    // Check if the client accepts WebP
+    const acceptHeader = getHeader(event, 'accept') || '';
+    const webpRequested = acceptHeader.includes('image/webp');
+
+    // When WebP is requested, store/load the converted file from cache (e.g. cache/types)
+    let image: ArrayBuffer;
+    let etag: string;
+    if (webpRequested) {
+        const cachePath = `./cache/types/${id}-${type}.webp`;
+        if (await Bun.file(cachePath).exists()) {
+            image = await Bun.file(cachePath).arrayBuffer();
+        } else {
+            const originalImage = await (Bun.file(fullImagePath)).arrayBuffer();
+            image = await convertToWebp(originalImage);
+            await Bun.file(cachePath).write(image);
+        }
+        etag = await generateETagForFile(cachePath);
+    } else {
+        image = await (Bun.file(fullImagePath)).arrayBuffer();
+        etag = await generateETagForFile(fullImagePath);
+    }
+
     const ifNoneMatch = getHeader(event, 'if-none-match');
-    const etag = await generateETagForFile(fullImagePath);
     if (ifNoneMatch === etag) {
         return new Response(null, {
             status: 304,
@@ -32,11 +54,9 @@ export default defineEventHandler(async (event) => {
         });
     }
 
-    // Fetch the image and return it
-    const image = await (Bun.file(fullImagePath)).arrayBuffer();
     return new Response(image, {
         headers: {
-            'Content-Type': 'image/png',
+            'Content-Type': webpRequested ? 'image/webp' : 'image/png',
             'Cache-Control': 'public, max-age=2592000',
             'Vary': 'Accept-Encoding',
             'ETag': etag,

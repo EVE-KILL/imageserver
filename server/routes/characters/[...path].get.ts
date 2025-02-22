@@ -1,28 +1,41 @@
 import { getCacheFilename } from '../../utils/cacheUtils';
 import { generateETagForFile } from '../../utils/hashUtils';
 import { getHeader } from 'h3';
+import { convertToWebp } from '../../utils/convertToWebp';
 
 export default defineEventHandler(async (event) => {
-    // Example: 11568/bpc
     const path = event.context.params.path;
     const [id, type] = path.split('/');
     const query = getQuery(event) || {};
-    const cachePath = getCacheFilename(id, query, 'jpg', './cache/characters');
 
-    const image = await getImage(id, query);
+    // Check if WebP is supported
+    const acceptHeader = getHeader(event, 'accept') || '';
+    const webpRequested = acceptHeader.includes('image/webp');
+    // If webp requested, use "webp" else original "jpg"
+    const desiredExt = webpRequested ? 'webp' : 'jpg';
+    const cachePath = getCacheFilename(id, query, desiredExt, './cache/characters');
+
+    let image: ArrayBuffer;
+    if (webpRequested) {
+        if (await Bun.file(cachePath).exists()) {
+            image = await Bun.file(cachePath).arrayBuffer();
+        } else {
+            const originalImage = await getImage(id, query);
+            image = await convertToWebp(originalImage);
+            await Bun.file(cachePath).write(image);
+        }
+    } else {
+        image = await getImage(id, query);
+    }
+
     const etag = await generateETagForFile(cachePath);
     const ifNoneMatch = getHeader(event, 'if-none-match');
     if (ifNoneMatch === etag) {
-        return new Response(null, {
-            status: 304,
-            headers: {
-                'ETag': etag
-            }
-        });
+        return new Response(null, { status: 304, headers: { 'ETag': etag } });
     }
     return new Response(image, {
         headers: {
-            'Content-Type': 'image/jpeg',
+            'Content-Type': webpRequested ? 'image/webp' : 'image/jpeg',
             'Cache-Control': 'public, max-age=2592000',
             'Vary': 'Accept-Encoding',
             'ETag': etag,

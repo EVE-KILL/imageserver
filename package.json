@@ -10,5 +10,8 @@
     "@types/bun": "^1.2.2",
     "typescript": "^5.7.3",
     "nitropack": "npm:nitropack-nightly@latest"
+  },
+  "dependencies": {
+    "sharp": "^0.33.5"
   }
 }
