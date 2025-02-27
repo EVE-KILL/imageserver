@@ -11,5 +11,11 @@ export default defineNitroConfig({
   },
   experimental: {
     asyncContext: true
+  },
+  routeRules: {
+    '/status': { cors: true, cache: {
+      maxAge: 60,
+      swr: true
+    }},
   }
 });
