@@ -30,21 +30,8 @@ async function getFolderStats(dir: string): Promise<{ sizeKB: number; fileCount:
 	return { sizeKB: Math.round(size / 1024), fileCount };
 }
 
+import { getCurrentStats } from '../utils/folderStats';
+
 export default defineEventHandler(async () => {
-	const folders = [
-		'characters',
-		'oldcharacters',
-		'corporations',
-		'alliances',
-		'types',
-	];
-
-	const status: Record<string, { sizeKB: number; fileCount: number }> = {};
-	// Calculate status for each folder
-	for (const folder of folders) {
-		const fullPath = path.resolve('./cache/' + folder);
-		status[folder] = await getFolderStats(fullPath);
-	}
-
-	return status;
+  return getCurrentStats();
 });
