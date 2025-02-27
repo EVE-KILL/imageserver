@@ -1,5 +1,5 @@
-import { promises as fs } from 'fs';
-import path from 'path';
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
 
 async function getFolderStats(dir: string): Promise<{ sizeKB: number; fileCount: number }> {
 	// Initialize accumulator variables
@@ -33,6 +33,7 @@ async function getFolderStats(dir: string): Promise<{ sizeKB: number; fileCount:
 export default defineEventHandler(async () => {
 	const folders = [
 		'characters',
+		'oldcharacters',
 		'corporations',
 		'alliances',
 		'types',

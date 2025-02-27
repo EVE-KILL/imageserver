@@ -13,6 +13,7 @@ export default defineEventHandler(async () => {
             '/corporations/{corporation_id}/logo?size={8,16,32,64,128,256,512,1024,2048}': 'Corporation logo with specific size',
             '/characters/{character_id}/portrait': 'Character portrait',
             '/characters/{character_id}/portrait?size={64,128,256,512}': 'Character portrait with specific size',
+            '/oldcharacters/{character_id}': 'Old character portrait (Has no size param)',
             '/types/{type_id}/icon': 'Type icon',
             '/types/{type_id}/icon?size={16,32,64,128,256,512}': 'Type icon with specific size',
             '/types/{type_id}/bp': 'Type blueprint icon',
