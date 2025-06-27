@@ -40,8 +40,19 @@ export default defineEventHandler(async (event) => {
 	const validSizes = [8, 16, 32, 64, 128, 256, 512, 1024];
 	const sizeParam = Number.parseInt(query.size, 10);
 	const requestedSize = validSizes.includes(sizeParam) ? sizeParam : null;
+
+	// Check for forced image type
+	const imageType = query.imagetype?.toLowerCase();
+	delete query.imagetype;
+
 	const acceptHeader = getHeader(event, "accept") || "";
-	const webpRequested = acceptHeader.includes("image/webp");
+	let webpRequested: boolean;
+
+	if (imageType) {
+		webpRequested = imageType === "webp";
+	} else {
+		webpRequested = acceptHeader.includes("image/webp");
+	}
 
 	// Set base extension based on source: local images are PNG, upstream images are JPEG
 	const baseExt = localEntry ? "png" : "jpeg";

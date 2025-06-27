@@ -16,9 +16,19 @@ export default defineEventHandler(async (event) => {
 		}
 	}
 
+	// Check for forced image type
+	const params = getQuery(event) || {};
+	const imageType = params.imagetype?.toLowerCase();
+
 	// Check for WebP support
 	const acceptHeader = getHeader(event, "accept") || "";
-	const webpRequested = acceptHeader.includes("image/webp");
+	let webpRequested: boolean;
+
+	if (imageType) {
+		webpRequested = imageType === "webp";
+	} else {
+		webpRequested = acceptHeader.includes("image/webp");
+	}
 
 	// Define file paths
 	const jpgPath = `./cache/oldcharacters/${id}_256.jpg`;

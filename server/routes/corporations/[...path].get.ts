@@ -13,9 +13,20 @@ export default defineEventHandler(async (event) => {
 	const requestedSize = params.size ? Number.parseInt(params.size, 10) : null;
 	delete params.size;
 
+	// Check for forced image type
+	const imageType = params.imagetype?.toLowerCase();
+	delete params.imagetype;
+
 	// Check for WebP support.
 	const acceptHeader = getHeader(event, "accept") || "";
-	const webpRequested = acceptHeader.includes("image/webp");
+	let webpRequested: boolean;
+
+	if (imageType) {
+		webpRequested = imageType === "webp";
+	} else {
+		webpRequested = acceptHeader.includes("image/webp");
+	}
+
 	const desiredExt = webpRequested ? "webp" : "png";
 
 	// Construct cache path. If a resize is requested, include size in the name.
