@@ -1,0 +1,8 @@
+<svg width="16" height="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+  <!-- Officer Overlay -->
+  <!-- Dark purple triangle background -->
+  <polygon points="0,0 16,0 0,16" fill="#340E73" stroke="none"/>
+  
+  <!-- White star -->
+  <polygon points="5,1 5.5,3.5 8,3.5 6,5 6.5,7.5 5,6 3.5,7.5 4,5 2,3.5 4.5,3.5" fill="white"/>
+</svg>

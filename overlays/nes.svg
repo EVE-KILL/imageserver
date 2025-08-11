@@ -1,0 +1,8 @@
+<svg width="16" height="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+  <!-- NES (Navy/Empire/State) Overlay -->
+  <!-- Light purple triangle background -->
+  <polygon points="0,0 16,0 0,16" fill="#E2A8FF" stroke="none"/>
+  
+  <!-- White diamond -->
+  <polygon points="5,2 8,5 5,8 2,5" fill="white"/>
+</svg>

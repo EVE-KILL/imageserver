@@ -1,0 +1,13 @@
+<svg width="16" height="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+  <!-- Time Limited Overlay -->
+  <!-- Light blue/cyan triangle background -->
+  <polygon points="0,0 16,0 0,16" fill="#98E7F3" stroke="none"/>
+  
+  <!-- Hourglass symbol -->
+  <!-- Top part of hourglass -->
+  <polygon points="2,2 7,2 4.5,4.5" fill="white"/>
+  <!-- Bottom part of hourglass -->
+  <polygon points="4.5,5.5 2,8 7,8" fill="white"/>
+  <!-- Hourglass outline -->
+  <polygon points="2,2 7,2 4.5,5 7,8 2,8 4.5,5" fill="none" stroke="white" stroke-width="0.8"/>
+</svg>

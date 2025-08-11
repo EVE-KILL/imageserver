@@ -2,9 +2,21 @@ import { getHeader, getQuery } from "h3";
 import { generateETagForFile } from "../../utils/hashUtils";
 import { convertToWebp } from "../../utils/convertToWebp";
 import { resizeImage } from "../../utils/resizeImage";
+import { applyOverlay } from "../../utils/overlayImage";
 
 // Load the service_metadata.json into memory
 const serviceMetadata = await Bun.file("./images/service_metadata.json").json();
+
+// Load overlay IDs and create reverse lookup map for faster access
+const overlayIds = await Bun.file("./overlays/ids.json").json();
+const idToOverlayMap = new Map<number, string>();
+
+// Create reverse lookup map: ID -> overlay type
+for (const [overlayType, ids] of Object.entries(overlayIds)) {
+	for (const id of ids as number[]) {
+		idToOverlayMap.set(id, overlayType);
+	}
+}
 
 export default defineEventHandler(async (event) => {
 	// Parse path params
@@ -60,10 +72,15 @@ export default defineEventHandler(async (event) => {
 
 	// Construct cache path. Include size if applicable.
 	let cachePath = "";
+	// For render type, include overlay in cache path since it might have an overlay applied
+	const needsOverlay = type === "render";
+	const overlayType = needsOverlay ? idToOverlayMap.get(Number.parseInt(id, 10)) : null;
+	const cacheTypeSuffix = needsOverlay && overlayType ? `${type}-${overlayType}` : type;
+
 	if (requestedSize) {
-		cachePath = `./cache/types/${id}-${type}-${requestedSize}.${desiredExt}`;
+		cachePath = `./cache/types/${id}-${cacheTypeSuffix}-${requestedSize}.${desiredExt}`;
 	} else {
-		cachePath = `./cache/types/${id}-${type}.${desiredExt}`;
+		cachePath = `./cache/types/${id}-${cacheTypeSuffix}.${desiredExt}`;
 	}
 
 	let image: ArrayBuffer;
@@ -71,8 +88,8 @@ export default defineEventHandler(async (event) => {
 
 	if (localEntry) {
 		const fullImagePath = `./images/${localEntry}`;
-		// If no conversion is requested, serve the original file directly.
-		if (!requestedSize && !webpRequested) {
+		// If no conversion is requested AND no overlay is needed, serve the original file directly.
+		if (!requestedSize && !webpRequested && !overlayType) {
 			cachePath = fullImagePath;
 		}
 		image = await loadOrProcessImage(
@@ -80,6 +97,8 @@ export default defineEventHandler(async (event) => {
 			cachePath,
 			requestedSize,
 			webpRequested,
+			false,
+			overlayType,
 		);
 		etag = await generateETagForFile(cachePath);
 	} else {
@@ -98,6 +117,7 @@ export default defineEventHandler(async (event) => {
 			requestedSize,
 			webpRequested,
 			true,
+			overlayType,
 		);
 		etag = await generateETagForFile(cachePath);
 	}
@@ -135,6 +155,7 @@ async function loadOrProcessImage(
 	requestedSize: number | null,
 	webpRequested: boolean,
 	upstream = false,
+	overlayType: string | null = null,
 ): Promise<ArrayBuffer> {
 	// If cached file exists, just load it.
 	if (await Bun.file(cachePath).exists()) {
@@ -148,6 +169,12 @@ async function loadOrProcessImage(
 		original = await Bun.file(source).arrayBuffer();
 	}
 	let processed = original;
+
+	// Apply overlay first if needed (before resizing to maintain quality)
+	if (overlayType !== null) {
+		processed = await applyOverlay(processed, overlayType);
+	}
+
 	if (requestedSize) {
 		processed = await resizeImage(processed, requestedSize);
 	}
