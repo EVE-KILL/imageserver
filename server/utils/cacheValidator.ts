@@ -8,11 +8,30 @@ interface CacheMetadata {
   cacheExpiry: number; // 24 hours from last check
 }
 
+interface CacheValidationStats {
+  lastValidationRun: number | null;
+  totalValidationRuns: number;
+  totalImagesValidated: number;
+  totalImagesRemoved: number;
+  lastValidationDuration: number | null;
+  averageValidationDuration: number;
+  validationErrors: number;
+}
+
 const CACHE_VALIDATION_INTERVAL = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
 const METADATA_SUFFIX = '.meta.json';
 
 export class CacheValidator {
   private validationTimer: NodeJS.Timeout | null = null;
+  private stats: CacheValidationStats = {
+    lastValidationRun: null,
+    totalValidationRuns: 0,
+    totalImagesValidated: 0,
+    totalImagesRemoved: 0,
+    lastValidationDuration: null,
+    averageValidationDuration: 0,
+    validationErrors: 0
+  };
 
   /**
    * Start the background cache validation service
@@ -43,6 +62,13 @@ export class CacheValidator {
       clearInterval(this.validationTimer);
       this.validationTimer = null;
     }
+  }
+
+  /**
+   * Get cache validation statistics
+   */
+  getStats(): CacheValidationStats {
+    return { ...this.stats };
   }
 
   /**
@@ -109,6 +135,7 @@ export class CacheValidator {
     const startTime = Date.now();
     let validatedCount = 0;
     let removedCount = 0;
+    let errorCount = 0;
 
     const cacheDirs = [
       './cache/characters',
@@ -121,21 +148,42 @@ export class CacheValidator {
         const results = await this.validateCacheDirectory(cacheDir);
         validatedCount += results.validated;
         removedCount += results.removed;
+        errorCount += results.errors;
       } catch (error) {
         console.error(`Error validating cache directory ${cacheDir}:`, error);
+        errorCount++;
       }
     }
 
     const duration = Date.now() - startTime;
-    console.log(`Cache validation completed in ${duration}ms. Validated: ${validatedCount}, Removed: ${removedCount}`);
+    
+    // Update statistics
+    this.stats.lastValidationRun = startTime;
+    this.stats.totalValidationRuns++;
+    this.stats.totalImagesValidated += validatedCount;
+    this.stats.totalImagesRemoved += removedCount;
+    this.stats.lastValidationDuration = duration;
+    this.stats.validationErrors += errorCount;
+    
+    // Calculate rolling average duration
+    if (this.stats.totalValidationRuns === 1) {
+      this.stats.averageValidationDuration = duration;
+    } else {
+      this.stats.averageValidationDuration = 
+        (this.stats.averageValidationDuration * (this.stats.totalValidationRuns - 1) + duration) / 
+        this.stats.totalValidationRuns;
+    }
+    
+    console.log(`Cache validation completed in ${duration}ms. Validated: ${validatedCount}, Removed: ${removedCount}, Errors: ${errorCount}`);
   }
 
   /**
    * Validate all images in a specific cache directory
    */
-  private async validateCacheDirectory(cacheDir: string): Promise<{ validated: number; removed: number }> {
+  private async validateCacheDirectory(cacheDir: string): Promise<{ validated: number; removed: number; errors: number }> {
     let validated = 0;
     let removed = 0;
+    let errors = 0;
 
     try {
       const files = await fs.readdir(cacheDir);
@@ -153,14 +201,17 @@ export class CacheValidator {
             validated++;
           } else if (result.action === 'removed') {
             removed++;
+          } else if (result.action === 'error') {
+            errors++;
           }
         }
       }
     } catch (error) {
       console.error(`Error reading cache directory ${cacheDir}:`, error);
+      errors++;
     }
 
-    return { validated, removed };
+    return { validated, removed, errors };
   }
 
   /**
