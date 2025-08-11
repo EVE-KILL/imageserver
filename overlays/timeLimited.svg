@@ -2,7 +2,7 @@
   <!-- Time Limited Overlay -->
   <!-- Light blue/cyan triangle background -->
   <polygon points="0,0 16,0 0,16" fill="#98E7F3" stroke="none"/>
-  
+
   <!-- Hourglass symbol -->
   <!-- Top part of hourglass -->
   <polygon points="2,2 7,2 4.5,4.5" fill="white"/>

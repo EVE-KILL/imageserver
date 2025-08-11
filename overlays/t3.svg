@@ -2,7 +2,7 @@
   <!-- T3 Tech Level Triangle -->
   <!-- Bronze/copper triangle background -->
   <polygon points="0,0 16,0 0,16" fill="#913503" stroke="none"/>
-  
+
   <!-- Three white parallel lines (Roman numeral III) -->
   <rect x="2" y="2" width="1.5" height="6" fill="white"/>
   <rect x="4" y="2" width="1.5" height="6" fill="white"/>

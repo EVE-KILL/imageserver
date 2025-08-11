@@ -1,0 +1,8 @@
+<svg width="16" height="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+    <!-- T1 Tech Level Triangle -->
+  <!-- Gold triangle background -->
+  <polygon points="0,0 16,0 0,16" fill="#C7AA0B" stroke="none"/>
+
+  <!-- One white bar -->
+  <rect x="4" y="2" width="1" height="5" fill="white"/>
+</svg>

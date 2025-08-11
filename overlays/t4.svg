@@ -2,7 +2,7 @@
   <!-- T4 Tech Level Triangle -->
   <!-- Dark reddish brown triangle background -->
   <polygon points="0,0 16,0 0,16" fill="#5A1A10" stroke="none"/>
-  
+
   <!-- Roman numeral IV -->
   <rect x="2" y="2" width="1.5" height="6" fill="white"/>
   <rect x="4.5" y="2" width="1.5" height="3" fill="white"/>

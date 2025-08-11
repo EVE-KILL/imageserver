@@ -2,7 +2,7 @@
   <!-- Abyssal Overlay -->
   <!-- Dark red triangle background -->
   <polygon points="0,0 16,0 0,16" fill="#872020" stroke="none"/>
-  
+
   <!-- White triangle symbol -->
   <polygon points="5,2 8,7 2,7" fill="white" stroke="none"/>
 </svg>

@@ -2,7 +2,7 @@
   <!-- T2 Tech Level Triangle -->
   <!-- Dark gold/brown triangle background -->
   <polygon points="0,0 16,0 0,16" fill="#9E6101" stroke="none"/>
-  
+
   <!-- Two white parallel lines -->
   <rect x="2" y="2" width="2" height="8" fill="white"/>
   <rect x="5" y="2" width="2" height="5" fill="white"/>

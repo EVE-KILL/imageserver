@@ -2,7 +2,7 @@
   <!-- Storyline Overlay -->
   <!-- Olive green triangle background -->
   <polygon points="0,0 16,0 0,16" fill="#436C1D" stroke="none"/>
-  
+
   <!-- White circle (O) -->
   <circle cx="6" cy="5" r="2.5" fill="none" stroke="white" stroke-width="1.2"/>
 </svg>

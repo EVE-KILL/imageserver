@@ -2,7 +2,7 @@
   <!-- NES (Navy/Empire/State) Overlay -->
   <!-- Light purple triangle background -->
   <polygon points="0,0 16,0 0,16" fill="#E2A8FF" stroke="none"/>
-  
+
   <!-- White diamond -->
   <polygon points="5,2 8,5 5,8 2,5" fill="white"/>
 </svg>

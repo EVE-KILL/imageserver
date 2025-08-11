@@ -2,7 +2,7 @@
   <!-- Deadspace Overlay -->
   <!-- Dark blue triangle background -->
   <polygon points="0,0 16,0 0,16" fill="#29478B" stroke="none"/>
-  
+
   <!-- White plus/cross -->
   <rect x="4" y="2" width="1.5" height="6" fill="white"/>
   <rect x="2" y="4" width="5" height="1.5" fill="white"/>
