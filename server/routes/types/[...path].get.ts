@@ -72,8 +72,8 @@ export default defineEventHandler(async (event) => {
 
 	// Construct cache path. Include size if applicable.
 	let cachePath = "";
-	// For render type, include overlay in cache path since it might have an overlay applied
-	const needsOverlay = type === "render";
+	// For overlayrender type, include overlay in cache path since it might have an overlay applied
+	const needsOverlay = type === "overlayrender";
 	const overlayType = needsOverlay ? idToOverlayMap.get(Number.parseInt(id, 10)) : null;
 	const cacheTypeSuffix = needsOverlay && overlayType ? `${type}-${overlayType}` : type;
 
@@ -110,7 +110,9 @@ export default defineEventHandler(async (event) => {
 			Object.keys(upstreamQuery).length > 0
 				? "?" + new URLSearchParams(upstreamQuery)
 				: "";
-		const upstreamURL = `https://images.evetech.net/types/${id}/${type}${qs}`;
+		// Use "render" for upstream when type is "overlayrender"
+		const upstreamType = type === "overlayrender" ? "render" : type;
+		const upstreamURL = `https://images.evetech.net/types/${id}/${upstreamType}${qs}`;
 		image = await loadOrProcessImage(
 			upstreamURL,
 			cachePath,

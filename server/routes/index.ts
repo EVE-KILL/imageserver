@@ -40,6 +40,7 @@ export default defineEventHandler(async () => {
                 '/types/{type_id}/bp': 'Type blueprint icon',
                 '/types/{type_id}/bpc': 'Type blueprint copy icon',
                 '/types/{type_id}/render': 'Ship render icon',
+                '/types/{type_id}/overlayrender': 'Ship render icon with overlay (T1-T4, faction, officer, etc.)',
                 'note': 'Local images are PNG, upstream images are JPEG. Use imagetype parameter to force format.'
             },
 
