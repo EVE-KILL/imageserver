@@ -3,17 +3,18 @@ import { generateETagForFile } from "../../utils/hashUtils";
 import { getHeader, getQuery } from "h3";
 import { convertToWebp } from "../../utils/convertToWebp";
 import { resizeImage } from "../../utils/resizeImage";
+import { cacheValidator } from "../../utils/cacheValidator";
 
 export default defineEventHandler(async (event) => {
 	const path = event.context.params.path;
 	const [id, type] = path.split("/");
 	// For alliances we use the /logo endpoint
 	const params = getQuery(event) || {};
-	const requestedSize = params.size ? Number.parseInt(params.size, 10) : null;
+	const requestedSize = params.size ? Number.parseInt(String(params.size), 10) : null;
 	delete params.size;
 
 	// Check for forced image type
-	const imageType = params.imagetype?.toLowerCase();
+	const imageType = String(params.imagetype || '').toLowerCase();
 	delete params.imagetype;
 
 	const acceptHeader = getHeader(event, "accept") || "";
@@ -28,9 +29,12 @@ export default defineEventHandler(async (event) => {
 	const desiredExt = webpRequested ? "webp" : "png";
 
 	// Construct cache path. Include size if provided.
+	const remainingParams = Object.fromEntries(
+		Object.entries(params).map(([k, v]) => [k, String(v)])
+	);
 	const cachePath = requestedSize
 		? `./cache/alliances/${id}-${requestedSize}.${desiredExt}`
-		: getCacheFilename(id, params, desiredExt, "./cache/alliances");
+		: getCacheFilename(id, remainingParams, desiredExt, "./cache/alliances");
 
 	const image = await loadOrProcessImage(
 		id,
@@ -47,12 +51,12 @@ export default defineEventHandler(async (event) => {
 	return new Response(image, {
 		headers: {
 			"Content-Type": webpRequested ? "image/webp" : "image/png",
-			"Cache-Control": "public, max-age=2592000",
+			"Cache-Control": "public, max-age=86400",
 			Vary: "Accept-Encoding",
 			ETag: etag,
 			"Last-Modified": new Date(Bun.file(cachePath).lastModified).toUTCString(),
 			"Accept-Ranges": "bytes",
-			Expires: new Date(Date.now() + 2592000).toUTCString(),
+			Expires: new Date(Date.now() + 86400 * 1000).toUTCString(),
 		},
 	});
 });
@@ -71,6 +75,7 @@ async function loadOrProcessImage(
 	// Upstream URL for alliances uses /logo and does not pass ?size.
 	const url = `https://images.evetech.net/alliances/${id}/logo`;
 	const res = await fetch(url);
+	const eveETag = res.headers.get("ETag");
 	const original = await res.arrayBuffer();
 	let processed = original;
 	if (requestedSize) {
@@ -80,5 +85,7 @@ async function loadOrProcessImage(
 		processed = await convertToWebp(processed);
 	}
 	await Bun.file(cachePath).write(processed);
+	// Save cache metadata for background validation
+	await cacheValidator.saveCacheMetadata(cachePath, eveETag);
 	return processed;
 }

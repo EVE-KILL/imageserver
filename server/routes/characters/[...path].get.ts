@@ -4,6 +4,7 @@ import { getHeader, getQuery } from "h3";
 import { convertToWebp } from "../../utils/convertToWebp";
 import { resizeImage } from "../../utils/resizeImage";
 import { getDefaultCharacterETag, getOldCharacterImage, initDefaultCharacterETag } from "../../utils/characterUtils";
+import { cacheValidator } from "../../utils/cacheValidator";
 
 // Initialize the default character ETag on startup
 await initDefaultCharacterETag();
@@ -13,11 +14,11 @@ export default defineEventHandler(async (event) => {
 	const [id, type] = path.split("/");
 	// For characters we use the /portrait endpoint.
 	const params = getQuery(event) || {};
-	const requestedSize = params.size ? Number.parseInt(params.size, 10) : null;
+	const requestedSize = params.size ? Number.parseInt(String(params.size), 10) : null;
 	delete params.size;
 
 	// Check for forced image type
-	const imageType = params.imagetype?.toLowerCase();
+	const imageType = String(params.imagetype || '').toLowerCase();
 	delete params.imagetype;
 
 	const acceptHeader = getHeader(event, "accept") || "";
@@ -32,9 +33,12 @@ export default defineEventHandler(async (event) => {
 	const desiredExt = webpRequested ? "webp" : "jpg";
 
 	// Construct cache path. If a resize is requested, include the size value.
+	const remainingParams = Object.fromEntries(
+		Object.entries(params).map(([k, v]) => [k, String(v)])
+	);
 	const cachePath = requestedSize
 		? `./cache/characters/${id}-${requestedSize}.${desiredExt}`
-		: getCacheFilename(id, params, desiredExt, "./cache/characters");
+		: getCacheFilename(id, remainingParams, desiredExt, "./cache/characters");
 
 	const image = await loadOrProcessImage(
 		id,
@@ -51,12 +55,12 @@ export default defineEventHandler(async (event) => {
 	return new Response(image, {
 		headers: {
 			"Content-Type": webpRequested ? "image/webp" : "image/jpeg",
-			"Cache-Control": "public, max-age=2592000",
+			"Cache-Control": "public, max-age=86400",
 			Vary: "Accept-Encoding",
 			ETag: etag,
 			"Last-Modified": new Date(Bun.file(cachePath).lastModified).toUTCString(),
 			"Accept-Ranges": "bytes",
-			Expires: new Date(Date.now() + 2592000).toUTCString(),
+			Expires: new Date(Date.now() + 86400 * 1000).toUTCString(),
 		},
 	});
 });
@@ -92,6 +96,8 @@ async function loadOrProcessImage(
 			}
 			// Save to the character cache
 			await Bun.file(cachePath).write(processed);
+			// Save cache metadata for background validation
+			await cacheValidator.saveCacheMetadata(cachePath, eveETag);
 			return processed;
 		}
 	}
@@ -108,5 +114,7 @@ async function loadOrProcessImage(
 	}
 
 	await Bun.file(cachePath).write(processed);
+	// Save cache metadata for background validation
+	await cacheValidator.saveCacheMetadata(cachePath, eveETag);
 	return processed;
 }

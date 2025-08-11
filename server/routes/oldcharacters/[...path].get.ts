@@ -18,7 +18,7 @@ export default defineEventHandler(async (event) => {
 
 	// Check for forced image type
 	const params = getQuery(event) || {};
-	const imageType = params.imagetype?.toLowerCase();
+	const imageType = String(params.imagetype || '').toLowerCase();
 
 	// Check for WebP support
 	const acceptHeader = getHeader(event, "accept") || "";
@@ -95,12 +95,12 @@ export default defineEventHandler(async (event) => {
 			"Content-Type": webpRequested && (needsConversion || imagePath.endsWith('.webp'))
 				? "image/webp"
 				: "image/jpeg",
-			"Cache-Control": "public, max-age=2592000",
+			"Cache-Control": "public, max-age=86400",
 			"Vary": "Accept-Encoding",
 			"ETag": etag,
 			"Last-Modified": new Date(Bun.file(imagePath).lastModified).toUTCString(),
 			"Accept-Ranges": "bytes",
-			"Expires": new Date(Date.now() + 2592000).toUTCString(),
+			"Expires": new Date(Date.now() + 86400 * 1000).toUTCString(),
 		},
 	});
 });

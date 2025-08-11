@@ -54,7 +54,7 @@ export default defineEventHandler(async (event) => {
 	const requestedSize = validSizes.includes(sizeParam) ? sizeParam : null;
 
 	// Check for forced image type
-	const imageType = query.imagetype?.toLowerCase();
+	const imageType = String(query.imagetype || '').toLowerCase();
 	delete query.imagetype;
 
 	const acceptHeader = getHeader(event, "accept") || "";
@@ -136,7 +136,7 @@ export default defineEventHandler(async (event) => {
 				: baseExt === "png"
 					? "image/png"
 					: "image/jpeg",
-			"Cache-Control": "public, max-age=2592000",
+			"Cache-Control": "public, max-age=86400",
 			Vary: "Accept-Encoding",
 			ETag: etag,
 			"Last-Modified": new Date(
@@ -144,7 +144,7 @@ export default defineEventHandler(async (event) => {
 					.lastModified,
 			).toUTCString(),
 			"Accept-Ranges": "bytes",
-			Expires: new Date(Date.now() + 2592000).toUTCString(),
+			Expires: new Date(Date.now() + 86400 * 1000).toUTCString(),
 		},
 	});
 });
