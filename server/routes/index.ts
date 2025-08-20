@@ -44,6 +44,21 @@ export default defineEventHandler(async () => {
                 'note': 'Local images are PNG, upstream images are JPEG. Use imagetype parameter to force format.'
             },
 
+            regions: {
+                '/regions/{region_id}': 'Region image',
+                '/regions/{region_id}?size={32,64,128}': 'Region image with specific size (closest size will be served)'
+            },
+
+            systems: {
+                '/systems/{system_id}': 'System image',
+                '/systems/{system_id}?size={32,64,128}': 'System image with specific size (closest size will be served)'
+            },
+
+            constellations: {
+                '/constellations/{constellation_id}': 'Constellation image',
+                '/constellations/{constellation_id}?size={32,64,128}': 'Constellation image with specific size (closest size will be served)'
+            },
+
             status: {
                 '/status': 'Server cache statistics and folder information'
             }

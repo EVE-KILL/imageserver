@@ -16,6 +16,9 @@ const folders = [
   'corporations',
   'alliances',
   'types',
+  'systems',
+  'regions',
+  'constellations',
 ];
 
 // Initialize with empty stats
