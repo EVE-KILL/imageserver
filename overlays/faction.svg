@@ -1,8 +1,0 @@
-<svg width="16" height="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
-  <!-- Faction Overlay -->
-  <!-- Dark green triangle background -->
-  <polygon points="0,0 16,0 0,16" fill="#11470D" stroke="none"/>
-
-  <!-- White square rotated 45 degrees (diamond orientation) - hollow and moved more left -->
-  <polygon points="5,2 8,5 5,8 2,5" fill="none" stroke="white" stroke-width="1.2"/>
-</svg>

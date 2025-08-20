@@ -156,7 +156,7 @@ export class CacheValidator {
     }
 
     const duration = Date.now() - startTime;
-    
+
     // Update statistics
     this.stats.lastValidationRun = startTime;
     this.stats.totalValidationRuns++;
@@ -164,16 +164,16 @@ export class CacheValidator {
     this.stats.totalImagesRemoved += removedCount;
     this.stats.lastValidationDuration = duration;
     this.stats.validationErrors += errorCount;
-    
+
     // Calculate rolling average duration
     if (this.stats.totalValidationRuns === 1) {
       this.stats.averageValidationDuration = duration;
     } else {
-      this.stats.averageValidationDuration = 
-        (this.stats.averageValidationDuration * (this.stats.totalValidationRuns - 1) + duration) / 
+      this.stats.averageValidationDuration =
+        (this.stats.averageValidationDuration * (this.stats.totalValidationRuns - 1) + duration) /
         this.stats.totalValidationRuns;
     }
-    
+
     console.log(`Cache validation completed in ${duration}ms. Validated: ${validatedCount}, Removed: ${removedCount}, Errors: ${errorCount}`);
   }
 

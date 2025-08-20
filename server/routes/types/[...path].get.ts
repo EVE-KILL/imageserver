@@ -4,21 +4,33 @@ import { convertToWebp } from "../../utils/convertToWebp";
 import { resizeImage } from "../../utils/resizeImage";
 import { applyOverlay } from "../../utils/overlayImage";
 
-// Load the service_metadata.json into memory
-const serviceMetadata = await Bun.file("./images/service_metadata.json").json();
+// Lazy-loaded data - will be loaded on first request
+let serviceMetadata: any = null;
+let idToOverlayMap: Map<number, string> | null = null;
 
-// Load overlay IDs and create reverse lookup map for faster access
-const overlayIds = await Bun.file("./overlays/ids.json").json();
-const idToOverlayMap = new Map<number, string>();
+// Function to load data if not already loaded
+async function loadData() {
+	if (!serviceMetadata) {
+		serviceMetadata = await Bun.file("./images/service_metadata.json").json();
+	}
 
-// Create reverse lookup map: ID -> overlay type
-for (const [overlayType, ids] of Object.entries(overlayIds)) {
-	for (const id of ids as number[]) {
-		idToOverlayMap.set(id, overlayType);
+	if (!idToOverlayMap) {
+		const overlayIds = await Bun.file("./overlays/ids.json").json();
+		idToOverlayMap = new Map<number, string>();
+
+		// Create reverse lookup map: ID -> overlay type
+		for (const [overlayType, ids] of Object.entries(overlayIds)) {
+			for (const id of ids as number[]) {
+				idToOverlayMap.set(id, overlayType);
+			}
+		}
 	}
 }
 
 export default defineEventHandler(async (event) => {
+	// Load data on first request
+	await loadData();
+
 	// Parse path params
 	const path = event.context.params.path;
 	const [id, type] = path.split("/");
