@@ -61,6 +61,10 @@ export default defineEventHandler(async () => {
 
             status: {
                 '/status': 'Server cache statistics and folder information'
+            },
+
+            metadata: {
+                '/service-metadata': 'Complete service metadata mapping file containing all image references'
             }
         }
     }
