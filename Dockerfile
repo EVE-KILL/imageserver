@@ -11,7 +11,7 @@ COPY . /app
 # Install dependencies and build application
 RUN \
     apt update && \
-    apt install -y unzip && \
+    apt install -y unzip wget && \
     bun install && \
     bun run build && \
     bun --bun run ./updateImageDump.ts && \
