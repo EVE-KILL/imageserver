@@ -16,7 +16,7 @@ RUN \
     bun run build && \
     bun --bun run ./updateImageDump.ts && \
     # Cleanup apt
-    apt remove -y unzip && \
+    #apt remove -y unzip && \
     apt autoremove -y && \
     rm -rf /var/lib/apt/lists/*
 
