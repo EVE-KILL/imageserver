@@ -77,9 +77,11 @@ async function loadOrProcessImage(
 		return await Bun.file(cachePath).arrayBuffer();
 	}
 
-	// If not in cache, fetch from EVE image server
 	const url = `https://images.evetech.net/characters/${id}/portrait`;
 	const res = await fetch(url);
+	if (!res.ok) {
+		throw createError({ statusCode: res.status, statusMessage: `Upstream returned ${res.status} for character ${id}` });
+	}
 	const eveETag = res.headers.get("ETag");
 	const defaultETag = getDefaultCharacterETag();
 

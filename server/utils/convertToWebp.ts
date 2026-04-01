@@ -7,5 +7,5 @@ export async function convertToWebp(buffer: ArrayBuffer): Promise<ArrayBuffer> {
   return outputBuffer.buffer.slice(
     outputBuffer.byteOffset,
     outputBuffer.byteOffset + outputBuffer.byteLength
-  );
+  ) as ArrayBuffer;
 }

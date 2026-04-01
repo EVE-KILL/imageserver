@@ -40,29 +40,17 @@ export default defineEventHandler(async (event) => {
 	const localEntry = data[type];
 
     if (Object.keys(data).length === 0) {
-        return {
-            statusCode: 400,
-            body: {
-                error: "Data for this ID is missing"
-            }
-        }
+        throw createError({ statusCode: 400, statusMessage: 'Data for this ID is missing' });
     }
 
 	if (!type) {
-        const availableTypes = Object.keys(data);
-        return {
-            statusCode: 400,
-            body: {
-                error: "Type is missing",
-                availableTypes: availableTypes
-            }
-        }
+        throw createError({ statusCode: 400, statusMessage: `Type is missing. Available types: ${Object.keys(data).join(', ')}` });
     }
 
 	// Retrieve query parameters and check for size and WebP support
 	const query = getQuery(event) || {};
 	const validSizes = [8, 16, 32, 64, 128, 256, 512, 1024];
-	const sizeParam = Number.parseInt(query.size, 10);
+	const sizeParam = Number.parseInt(String(query.size), 10);
 	const requestedSize = validSizes.includes(sizeParam) ? sizeParam : null;
 
 	// Check for forced image type
@@ -118,9 +106,13 @@ export default defineEventHandler(async (event) => {
 		// Build upstream URL with any query parameters (except "size" because we handle resizing locally)
 		const upstreamQuery = { ...query };
 		delete upstreamQuery.size;
+		const upstreamParams: Record<string, string> = {};
+		for (const [k, v] of Object.entries(upstreamQuery)) {
+			if (v != null) upstreamParams[k] = String(v);
+		}
 		const qs =
-			Object.keys(upstreamQuery).length > 0
-				? "?" + new URLSearchParams(upstreamQuery)
+			Object.keys(upstreamParams).length > 0
+				? "?" + new URLSearchParams(upstreamParams)
 				: "";
 		// Use "render" for upstream when type is "overlayrender"
 		const upstreamType = type === "overlayrender" ? "render" : type;
@@ -178,6 +170,9 @@ async function loadOrProcessImage(
 	let original: ArrayBuffer;
 	if (upstream) {
 		const res = await fetch(source);
+		if (!res.ok) {
+			throw createError({ statusCode: res.status, statusMessage: `Upstream returned ${res.status}` });
+		}
 		original = await res.arrayBuffer();
 	} else {
 		original = await Bun.file(source).arrayBuffer();

@@ -72,9 +72,11 @@ async function loadOrProcessImage(
 	if (await Bun.file(cachePath).exists()) {
 		return await Bun.file(cachePath).arrayBuffer();
 	}
-	// Upstream URL for alliances uses /logo and does not pass ?size.
 	const url = `https://images.evetech.net/alliances/${id}/logo`;
 	const res = await fetch(url);
+	if (!res.ok) {
+		throw createError({ statusCode: res.status, statusMessage: `Upstream returned ${res.status} for alliance ${id}` });
+	}
 	const eveETag = res.headers.get("ETag");
 	const original = await res.arrayBuffer();
 	let processed = original;

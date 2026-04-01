@@ -13,5 +13,5 @@ export async function resizeImage(buffer: ArrayBuffer, size: number): Promise<Ar
   return outputBuffer.buffer.slice(
     outputBuffer.byteOffset,
     outputBuffer.byteOffset + outputBuffer.byteLength
-  );
+  ) as ArrayBuffer;
 }

@@ -192,7 +192,14 @@ export class CacheValidator {
         (file.endsWith('.jpg') || file.endsWith('.jpeg') || file.endsWith('.png') || file.endsWith('.webp'))
       );
 
+      // Track IDs already processed (removeCachedImage removes all variants)
+      const processedIds = new Set<string>();
+
       for (const file of imageFiles) {
+        const idMatch = file.match(/^(\d+)(?:-|\.)/);
+        const id = idMatch?.[1];
+        if (id && processedIds.has(id)) continue;
+
         const imagePath = path.join(cacheDir, file);
 
         if (await this.needsValidation(imagePath)) {
@@ -200,7 +207,8 @@ export class CacheValidator {
           if (result.action === 'validated') {
             validated++;
           } else if (result.action === 'removed') {
-            removed++;
+            if (id) processedIds.add(id);
+            removed += result.removedCount;
           } else if (result.action === 'error') {
             errors++;
           }
@@ -217,7 +225,7 @@ export class CacheValidator {
   /**
    * Validate a single cached image against upstream
    */
-  private async validateSingleImage(imagePath: string): Promise<{ action: 'validated' | 'removed' | 'error' }> {
+  private async validateSingleImage(imagePath: string): Promise<{ action: 'validated' | 'error' } | { action: 'removed'; removedCount: number }> {
     try {
       let metadata = await this.loadCacheMetadata(imagePath);
       const upstreamUrl = this.getUpstreamUrl(imagePath);
@@ -226,12 +234,10 @@ export class CacheValidator {
         return { action: 'error' };
       }
 
-      // Make a HEAD request to check the current ETag
       const response = await fetch(upstreamUrl, { method: 'HEAD' });
       const currentETag = response.headers.get('etag');
 
       if (!currentETag) {
-        // No ETag from upstream, just update/create metadata
         if (!metadata) {
           await this.saveCacheMetadata(imagePath, 'no-etag');
         } else {
@@ -243,24 +249,21 @@ export class CacheValidator {
       }
 
       if (!metadata) {
-        // Legacy cached image without metadata - create metadata with current ETag
         await this.saveCacheMetadata(imagePath, currentETag);
         console.log(`Created metadata for legacy cached image: ${imagePath}`);
         return { action: 'validated' };
       }
 
       if (currentETag !== metadata.etag) {
-        // ETag changed, remove the cached image (and its metadata)
-        await this.removeCachedImage(imagePath);
-        console.log(`Removed stale cached image: ${imagePath}`);
-        return { action: 'removed' };
-      } else {
-        // ETag same, update the cache expiry
-        metadata.lastChecked = Date.now();
-        metadata.cacheExpiry = Date.now() + CACHE_VALIDATION_INTERVAL;
-        await fs.writeFile(imagePath + METADATA_SUFFIX, JSON.stringify(metadata, null, 2));
-        return { action: 'validated' };
+        const removedCount = await this.removeCachedImage(imagePath);
+        console.log(`Removed ${removedCount} stale cached file(s) for: ${imagePath}`);
+        return { action: 'removed', removedCount };
       }
+
+      metadata.lastChecked = Date.now();
+      metadata.cacheExpiry = Date.now() + CACHE_VALIDATION_INTERVAL;
+      await fs.writeFile(imagePath + METADATA_SUFFIX, JSON.stringify(metadata, null, 2));
+      return { action: 'validated' };
     } catch (error) {
       console.error(`Error validating ${imagePath}:`, error);
       return { action: 'error' };
@@ -268,20 +271,46 @@ export class CacheValidator {
   }
 
   /**
-   * Remove a cached image and its metadata
+   * Remove a cached image, its metadata, and all size variants of the same ID
    */
-  private async removeCachedImage(imagePath: string) {
-    try {
-      await fs.unlink(imagePath);
-    } catch (error) {
-      console.error(`Error removing cached image ${imagePath}:`, error);
+  private async removeCachedImage(imagePath: string): Promise<number> {
+    const dir = path.dirname(imagePath);
+    const filename = path.basename(imagePath);
+    const match = filename.match(/^(\d+)(?:-|\.)/);
+    if (!match) {
+      // Can't parse ID, just remove the single file
+      try { await fs.unlink(imagePath); } catch {}
+      try { await fs.unlink(imagePath + METADATA_SUFFIX); } catch {}
+      return 1;
     }
 
+    const id = match[1];
+    let removedCount = 0;
+
     try {
-      await fs.unlink(imagePath + METADATA_SUFFIX);
-    } catch (error) {
-      // Metadata file might not exist, that's okay
+      const files = await fs.readdir(dir);
+      // Match all files starting with this ID followed by - or .
+      const variants = files.filter(f => {
+        const m = f.match(/^(\d+)(?:-|\.)/);
+        return m && m[1] === id;
+      });
+
+      for (const variant of variants) {
+        try {
+          await fs.unlink(path.join(dir, variant));
+          if (!variant.endsWith(METADATA_SUFFIX)) {
+            removedCount++;
+          }
+        } catch {}
+      }
+    } catch {
+      // Fallback: just remove the single file
+      try { await fs.unlink(imagePath); } catch {}
+      try { await fs.unlink(imagePath + METADATA_SUFFIX); } catch {}
+      removedCount = 1;
     }
+
+    return removedCount;
   }
 
   /**

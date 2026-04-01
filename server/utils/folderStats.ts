@@ -1,13 +1,15 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
-// Type definition for folder stats
+const METADATA_SUFFIX = '.meta.json';
+
 interface FolderStats {
   sizeKB: number;
   fileCount: number;
+  metadataSizeKB: number;
+  metadataFileCount: number;
 }
 
-// Store for pre-calculated stats
 let cachedStats: Record<string, FolderStats> = {};
 let isCalculating = false;
 const folders = [
@@ -21,53 +23,68 @@ const folders = [
   'constellations',
 ];
 
-// Initialize with empty stats
 for (const folder of folders) {
-  cachedStats[folder] = { sizeKB: 0, fileCount: 0 };
+  cachedStats[folder] = { sizeKB: 0, fileCount: 0, metadataSizeKB: 0, metadataFileCount: 0 };
 }
 
 async function getFolderStats(dir: string): Promise<FolderStats> {
-  // Initialize accumulator variables
-  let size = 0;
-  let fileCount = 0;
+  let imageSize = 0;
+  let imageCount = 0;
+  let metadataSize = 0;
+  let metadataCount = 0;
 
-  // Helper recursive function
   async function walk(currentDir: string) {
-    const entries = await fs.readdir(currentDir, { withFileTypes: true });
+    let entries;
+    try {
+      entries = await fs.readdir(currentDir, { withFileTypes: true });
+    } catch {
+      return;
+    }
     for (const entry of entries) {
       const fullPath = path.join(currentDir, entry.name);
       if (entry.isDirectory()) {
         await walk(fullPath);
       } else if (entry.isFile()) {
         const stats = await fs.stat(fullPath);
-        size += stats.size;
-        fileCount += 1;
+        if (entry.name.endsWith(METADATA_SUFFIX)) {
+          metadataSize += stats.size;
+          metadataCount++;
+        } else {
+          imageSize += stats.size;
+          imageCount++;
+        }
       }
     }
   }
 
-  try {
-    await walk(dir);
-  } catch (err) {
-    // In case the folder doesn't exist or another error occurs, keep default values
-  }
+  await walk(dir);
 
-  return { sizeKB: Math.round(size / 1024), fileCount };
+  return {
+    sizeKB: Math.round(imageSize / 1024),
+    fileCount: imageCount,
+    metadataSizeKB: Math.round(metadataSize / 1024),
+    metadataFileCount: metadataCount,
+  };
 }
 
-// Function to calculate all folder stats
 async function calculateAllFolderStats(): Promise<void> {
-  // Prevent concurrent calculations
   if (isCalculating) return;
 
   try {
     isCalculating = true;
     console.log('Calculating folder statistics...');
-    const newStats: Record<string, FolderStats> = {};
 
-    for (const folder of folders) {
-      const fullPath = path.resolve('./cache/' + folder);
-      newStats[folder] = await getFolderStats(fullPath);
+    const results = await Promise.all(
+      folders.map(async (folder) => {
+        const fullPath = path.resolve('./cache/' + folder);
+        const stats = await getFolderStats(fullPath);
+        return [folder, stats] as const;
+      })
+    );
+
+    const newStats: Record<string, FolderStats> = {};
+    for (const [folder, stats] of results) {
+      newStats[folder] = stats;
     }
 
     cachedStats = newStats;
@@ -79,19 +96,15 @@ async function calculateAllFolderStats(): Promise<void> {
   }
 }
 
-// Get the current stats
 export function getCurrentStats(): Record<string, FolderStats> {
   return { ...cachedStats };
 }
 
-// Initialize and set up recurring calculation
 export function initFolderStats(): void {
-  // Start initial calculation in the background
   calculateAllFolderStats().catch(err =>
     console.error('Error in initial folder stats calculation:', err)
   );
 
-  // Recalculate every hour
   setInterval(() => {
     calculateAllFolderStats().catch(err =>
       console.error('Error in scheduled folder stats calculation:', err)

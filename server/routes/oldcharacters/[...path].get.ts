@@ -8,12 +8,7 @@ export default defineEventHandler(async (event) => {
 	const [id] = path.split("/");
 
 	if (!id) {
-		return {
-			statusCode: 400,
-			body: {
-				error: "Character ID is missing"
-			}
-		}
+		throw createError({ statusCode: 400, statusMessage: 'Character ID is missing' });
 	}
 
 	// Check for forced image type

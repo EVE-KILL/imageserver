@@ -8,12 +8,7 @@ export default defineEventHandler(async (event) => {
 	const [id] = path.split("/");
 
 	if (!id) {
-		return {
-			statusCode: 400,
-			body: {
-				error: "System ID is missing"
-			}
-		}
+		throw createError({ statusCode: 400, statusMessage: 'System ID is missing' });
 	}
 
 	// Parse query parameters
@@ -54,12 +49,7 @@ export default defineEventHandler(async (event) => {
 	);
 
 	if (!image) {
-		return {
-			statusCode: 404,
-			body: {
-				error: "System image not found"
-			}
-		}
+		throw createError({ statusCode: 404, statusMessage: 'System image not found' });
 	}
 
 	const desiredExt = webpRequested ? "webp" : "png";
@@ -103,8 +93,8 @@ async function loadOrProcessImage(
 
 	// Determine which source image to use based on requested size
 	let sourceImagePath: string;
+	let needsResize = false;
 	if (requestedSize === 32) {
-		// Use 32px version if it exists, otherwise use main image
 		const smallImagePath = `./systems/${id}_32.png`;
 		if (await Bun.file(smallImagePath).exists()) {
 			sourceImagePath = smallImagePath;
@@ -112,25 +102,24 @@ async function loadOrProcessImage(
 			const mainImagePath = `./systems/${id}.png`;
 			if (await Bun.file(mainImagePath).exists()) {
 				sourceImagePath = mainImagePath;
+				needsResize = true;
 			} else {
 				return null;
 			}
 		}
 	} else {
-		// Use main image for 64px and 128px (and no size)
 		const mainImagePath = `./systems/${id}.png`;
 		if (await Bun.file(mainImagePath).exists()) {
 			sourceImagePath = mainImagePath;
+			needsResize = !!requestedSize;
 		} else {
 			return null;
 		}
 	}
 
-	// Load the source image
 	let processed = await Bun.file(sourceImagePath).arrayBuffer();
 
-	// Resize if needed (only for 64px and 128px, since 32px uses pre-sized image)
-	if (requestedSize && requestedSize !== 32) {
+	if (needsResize && requestedSize) {
 		processed = await resizeImage(processed, requestedSize);
 	}
 

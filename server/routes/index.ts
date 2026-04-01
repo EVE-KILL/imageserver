@@ -1,7 +1,7 @@
 export default defineEventHandler(async () => {
     return {
         status: 'ok',
-        version: '0.1.0',
+        version: '1.0.0',
         name: 'EVE Image Server Proxy (Unofficial)',
         description: 'A proxy server for EVE Online images with caching, resizing, and format conversion.',
         officialDocumentation: 'https://developers.eveonline.com/docs/services/image-server/',

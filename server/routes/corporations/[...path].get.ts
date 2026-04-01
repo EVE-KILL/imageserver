@@ -73,9 +73,11 @@ async function loadOrProcessImage(
 	if (await Bun.file(cachePath).exists()) {
 		return await Bun.file(cachePath).arrayBuffer();
 	}
-	// Build upstream URL without any size parameter.
 	const url = `https://images.evetech.net/corporations/${id}/logo`;
 	const res = await fetch(url);
+	if (!res.ok) {
+		throw createError({ statusCode: res.status, statusMessage: `Upstream returned ${res.status} for corporation ${id}` });
+	}
 	const eveETag = res.headers.get("ETag");
 	const original = await res.arrayBuffer();
 	let processed = original;
