@@ -1,6 +1,6 @@
 import { getHeader } from "h3";
 import { generateETag, generateETagForFile } from "../../utils/hashUtils";
-import { convertToWebp } from "../../utils/convertToWebp";
+import { processImage } from "../../utils/processImage";
 import { lruGet, lruSet, lruKey } from "../../utils/lruCache";
 
 export default defineEventHandler(async (event) => {
@@ -70,7 +70,7 @@ export default defineEventHandler(async (event) => {
 	let image = lruGet(cacheKey);
 	if (!image) {
 		const original = await Bun.file(imagePath).arrayBuffer();
-		image = await convertToWebp(original);
+		image = await processImage(original, null, true);
 		lruSet(cacheKey, image);
 	}
 

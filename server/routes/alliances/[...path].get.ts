@@ -1,8 +1,7 @@
 import { getShardedPath, ensureShardDir } from "../../utils/cacheUtils";
 import { generateETag } from "../../utils/hashUtils";
 import { getHeader, getQuery } from "h3";
-import { convertToWebp } from "../../utils/convertToWebp";
-import { resizeImage } from "../../utils/resizeImage";
+import { processImage } from "../../utils/processImage";
 import { saveMetadata, touchAccessed } from "../../utils/metadataDb";
 import { lruGet, lruSet, lruKey } from "../../utils/lruCache";
 
@@ -85,19 +84,4 @@ async function loadOrProcessImage(
 	saveMetadata(cachePath, eveETag || 'none', original.byteLength);
 
 	return processImage(original, requestedSize, webpRequested);
-}
-
-async function processImage(
-	original: ArrayBuffer,
-	requestedSize: number | null,
-	webpRequested: boolean,
-): Promise<ArrayBuffer> {
-	let processed = original;
-	if (requestedSize) {
-		processed = await resizeImage(processed, requestedSize);
-	}
-	if (webpRequested) {
-		processed = await convertToWebp(processed);
-	}
-	return processed;
 }

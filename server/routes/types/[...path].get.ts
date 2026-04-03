@@ -1,8 +1,7 @@
 import { getHeader, getQuery } from "h3";
 import { generateETag } from "../../utils/hashUtils";
 import { getShardedPath, ensureShardDir } from "../../utils/cacheUtils";
-import { convertToWebp } from "../../utils/convertToWebp";
-import { resizeImage } from "../../utils/resizeImage";
+import { processImage } from "../../utils/processImage";
 import { applyOverlay } from "../../utils/overlayImage";
 import { lruGet, lruSet, lruKey } from "../../utils/lruCache";
 
@@ -205,17 +204,3 @@ async function loadOrProcessUpstream(
 	return processImage(base, requestedSize, webpRequested);
 }
 
-async function processImage(
-	original: ArrayBuffer,
-	requestedSize: number | null,
-	webpRequested: boolean,
-): Promise<ArrayBuffer> {
-	let processed = original;
-	if (requestedSize) {
-		processed = await resizeImage(processed, requestedSize);
-	}
-	if (webpRequested) {
-		processed = await convertToWebp(processed);
-	}
-	return processed;
-}

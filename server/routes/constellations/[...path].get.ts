@@ -1,7 +1,6 @@
 import { generateETag } from "../../utils/hashUtils";
 import { getHeader, getQuery } from "h3";
-import { convertToWebp } from "../../utils/convertToWebp";
-import { resizeImage } from "../../utils/resizeImage";
+import { processImage } from "../../utils/processImage";
 import { lruGet, lruSet, lruKey } from "../../utils/lruCache";
 
 export default defineEventHandler(async (event) => {
@@ -68,14 +67,8 @@ export default defineEventHandler(async (event) => {
 
 	let processed = lruGet(cacheKey);
 	if (!processed) {
-		let image = await Bun.file(sourcePath).arrayBuffer();
-		if (needsResize && requestedSize) {
-			image = await resizeImage(image, requestedSize);
-		}
-		if (webpRequested) {
-			image = await convertToWebp(image);
-		}
-		processed = image;
+		const image = await Bun.file(sourcePath).arrayBuffer();
+		processed = await processImage(image, needsResize ? requestedSize : null, webpRequested);
 		lruSet(cacheKey, processed);
 	}
 

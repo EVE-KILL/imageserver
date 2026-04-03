@@ -1,4 +1,4 @@
-import { convertToWebp } from "./convertToWebp";
+import { processImage } from "./processImage";
 import { lruGet, lruSet, lruKey } from "./lruCache";
 
 // Fetch and store the default character portrait ETag
@@ -46,7 +46,7 @@ export async function getOldCharacterImage(id: string, webpRequested: boolean): 
     if (cached) {
       image = cached;
     } else {
-      image = await convertToWebp(image);
+      image = await processImage(image, null, true);
       lruSet(cacheKey, image);
     }
   }
