@@ -1,11 +1,13 @@
 import sharp from 'sharp';
 
+// Limit libvips internal cache to prevent unbounded native memory growth
+sharp.cache({ memory: 128, files: 20, items: 200 });
+sharp.concurrency(1);
+
 export async function resizeImage(buffer: ArrayBuffer, size: number): Promise<ArrayBuffer> {
-  const inputBuffer = Buffer.from(buffer);
-  const img = sharp(inputBuffer);
+  const img = sharp(buffer);
   const metadata = await img.metadata();
   const width = metadata.width || size;
-  // Only resize if the original image is larger than the requested size.
   if (width <= size) {
     return buffer;
   }

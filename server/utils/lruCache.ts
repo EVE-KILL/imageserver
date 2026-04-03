@@ -12,7 +12,7 @@ interface LRUNode {
   next: LRUNode | null;
 }
 
-const DEFAULT_MAX_BYTES = 500 * 1024 * 1024; // 500MB
+const DEFAULT_MAX_BYTES = 1024 * 1024 * 1024; // 1GB
 
 class LRUCache {
   private map = new Map<string, LRUNode>();
