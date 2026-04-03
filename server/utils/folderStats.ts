@@ -1,37 +1,28 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-
-const METADATA_SUFFIX = '.meta.json';
+import { getStats as getDbStats } from './metadataDb';
 
 interface FolderStats {
   sizeKB: number;
   fileCount: number;
-  metadataSizeKB: number;
-  metadataFileCount: number;
 }
 
-let cachedStats: Record<string, FolderStats> = {};
+// Folders tracked via SQLite metadata (upstream-proxied + types)
+const dbFolders = ['characters', 'corporations', 'alliances', 'types'];
+
+// Folders that need filesystem walking (local source data, no DB entries)
+const walkFolders = ['oldcharacters'];
+
+// Walk results are cached since they're expensive (recalculated periodically)
+let walkCache: Record<string, FolderStats> = {};
+for (const folder of walkFolders) {
+  walkCache[folder] = { sizeKB: 0, fileCount: 0 };
+}
 let isCalculating = false;
-const folders = [
-  'characters',
-  'oldcharacters',
-  'corporations',
-  'alliances',
-  'types',
-  'systems',
-  'regions',
-  'constellations',
-];
 
-for (const folder of folders) {
-  cachedStats[folder] = { sizeKB: 0, fileCount: 0, metadataSizeKB: 0, metadataFileCount: 0 };
-}
-
-async function getFolderStats(dir: string): Promise<FolderStats> {
-  let imageSize = 0;
-  let imageCount = 0;
-  let metadataSize = 0;
-  let metadataCount = 0;
+async function getFolderStatsByWalk(dir: string): Promise<FolderStats> {
+  let totalSize = 0;
+  let totalCount = 0;
 
   async function walk(currentDir: string) {
     let entries;
@@ -46,13 +37,8 @@ async function getFolderStats(dir: string): Promise<FolderStats> {
         await walk(fullPath);
       } else if (entry.isFile()) {
         const stats = await fs.stat(fullPath);
-        if (entry.name.endsWith(METADATA_SUFFIX)) {
-          metadataSize += stats.size;
-          metadataCount++;
-        } else {
-          imageSize += stats.size;
-          imageCount++;
-        }
+        totalSize += stats.size;
+        totalCount++;
       }
     }
   }
@@ -60,14 +46,12 @@ async function getFolderStats(dir: string): Promise<FolderStats> {
   await walk(dir);
 
   return {
-    sizeKB: Math.round(imageSize / 1024),
-    fileCount: imageCount,
-    metadataSizeKB: Math.round(metadataSize / 1024),
-    metadataFileCount: metadataCount,
+    sizeKB: Math.round(totalSize / 1024),
+    fileCount: totalCount,
   };
 }
 
-async function calculateAllFolderStats(): Promise<void> {
+async function calculateWalkStats(): Promise<void> {
   if (isCalculating) return;
 
   try {
@@ -75,19 +59,17 @@ async function calculateAllFolderStats(): Promise<void> {
     console.log('Calculating folder statistics...');
 
     const results = await Promise.all(
-      folders.map(async (folder) => {
+      walkFolders.map(async (folder) => {
         const fullPath = path.resolve('./cache/' + folder);
-        const stats = await getFolderStats(fullPath);
+        const stats = await getFolderStatsByWalk(fullPath);
         return [folder, stats] as const;
       })
     );
 
-    const newStats: Record<string, FolderStats> = {};
     for (const [folder, stats] of results) {
-      newStats[folder] = stats;
+      walkCache[folder] = stats;
     }
 
-    cachedStats = newStats;
     console.log('Folder statistics recalculated at:', new Date().toISOString());
   } catch (error) {
     console.error('Error calculating folder statistics:', error);
@@ -96,17 +78,38 @@ async function calculateAllFolderStats(): Promise<void> {
   }
 }
 
+/**
+ * Get current stats — DB folders are always live, walk folders are cached.
+ */
 export function getCurrentStats(): Record<string, FolderStats> {
-  return { ...cachedStats };
+  const result: Record<string, FolderStats> = {};
+
+  // DB-tracked folders: always fresh from SQLite (instant query)
+  const dbStats = getDbStats();
+  for (const folder of dbFolders) {
+    const stats = dbStats[folder];
+    result[folder] = stats
+      ? { sizeKB: stats.totalSizeKB, fileCount: stats.fileCount }
+      : { sizeKB: 0, fileCount: 0 };
+  }
+
+  // Walk-based folders: use cached values
+  for (const folder of walkFolders) {
+    result[folder] = walkCache[folder];
+  }
+
+  return result;
 }
 
 export function initFolderStats(): void {
-  calculateAllFolderStats().catch(err =>
+  // Calculate walk-based stats immediately at startup
+  calculateWalkStats().catch(err =>
     console.error('Error in initial folder stats calculation:', err)
   );
 
+  // Recalculate walk-based stats every hour
   setInterval(() => {
-    calculateAllFolderStats().catch(err =>
+    calculateWalkStats().catch(err =>
       console.error('Error in scheduled folder stats calculation:', err)
     );
   }, 60 * 60 * 1000);

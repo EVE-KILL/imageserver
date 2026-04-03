@@ -1,63 +1,65 @@
-import { getCacheFilename } from "../../utils/cacheUtils";
-import { generateETagForFile } from "../../utils/hashUtils";
+import { getShardedPath, ensureShardDir } from "../../utils/cacheUtils";
+import { generateETag } from "../../utils/hashUtils";
 import { getHeader, getQuery } from "h3";
 import { convertToWebp } from "../../utils/convertToWebp";
 import { resizeImage } from "../../utils/resizeImage";
 import { getDefaultCharacterETag, getOldCharacterImage, initDefaultCharacterETag } from "../../utils/characterUtils";
-import { cacheValidator } from "../../utils/cacheValidator";
+import { saveMetadata, touchAccessed } from "../../utils/metadataDb";
+import { lruGet, lruSet, lruKey } from "../../utils/lruCache";
 
-// Initialize the default character ETag on startup
 await initDefaultCharacterETag();
 
 export default defineEventHandler(async (event) => {
 	const path = event.context.params.path;
 	const [id, type] = path.split("/");
-	// For characters we use the /portrait endpoint.
+
 	const params = getQuery(event) || {};
 	const requestedSize = params.size ? Number.parseInt(String(params.size), 10) : null;
 	delete params.size;
 
-	// Check for forced image type
 	const imageType = String(params.imagetype || '').toLowerCase();
 	delete params.imagetype;
 
 	const acceptHeader = getHeader(event, "accept") || "";
 	let webpRequested: boolean;
-
 	if (imageType) {
 		webpRequested = imageType === "webp";
 	} else {
 		webpRequested = acceptHeader.includes("image/webp");
 	}
 
-	const desiredExt = webpRequested ? "webp" : "jpg";
+	const desiredFormat = webpRequested ? "webp" : "jpg";
 
-	// Construct cache path. If a resize is requested, include the size value.
-	const remainingParams = Object.fromEntries(
-		Object.entries(params).map(([k, v]) => [k, String(v)])
-	);
-	const cachePath = requestedSize
-		? `./cache/characters/${id}-${requestedSize}.${desiredExt}`
-		: getCacheFilename(id, remainingParams, desiredExt, "./cache/characters");
+	// Single file on disk per character ID — the original upstream image
+	const cachePath = getShardedPath("characters", id, "original");
 
-	const image = await loadOrProcessImage(
-		id,
-		cachePath,
-		requestedSize,
-		webpRequested,
-	);
-	const etag = await generateETagForFile(cachePath);
+	// Check LRU first for the exact processed variant
+	const cacheKey = lruKey(cachePath, requestedSize, desiredFormat);
+	const etag = await generateETag(cachePath, requestedSize, desiredFormat);
+
+	// Handle 304
 	const ifNoneMatch = getHeader(event, "if-none-match");
-	if (ifNoneMatch === etag) {
+	if (ifNoneMatch && ifNoneMatch === etag && await Bun.file(cachePath).exists()) {
+		touchAccessed(cachePath);
 		return new Response(null, { status: 304, headers: { ETag: etag } });
 	}
 
-	return new Response(image, {
+	let processed = lruGet(cacheKey);
+	if (!processed) {
+		processed = await loadOrProcessImage(id, cachePath, requestedSize, webpRequested);
+		lruSet(cacheKey, processed);
+	} else {
+		touchAccessed(cachePath);
+	}
+
+	const finalEtag = await generateETag(cachePath, requestedSize, desiredFormat);
+
+	return new Response(processed, {
 		headers: {
 			"Content-Type": webpRequested ? "image/webp" : "image/jpeg",
 			"Cache-Control": "public, max-age=86400",
 			Vary: "Accept-Encoding",
-			ETag: etag,
+			ETag: finalEtag,
 			"Last-Modified": new Date(Bun.file(cachePath).lastModified).toUTCString(),
 			"Accept-Ranges": "bytes",
 			Expires: new Date(Date.now() + 86400 * 1000).toUTCString(),
@@ -65,58 +67,66 @@ export default defineEventHandler(async (event) => {
 	});
 });
 
-// Modified helper to check for oldcharacters fallback
 async function loadOrProcessImage(
 	id: string,
 	cachePath: string,
 	requestedSize: number | null,
 	webpRequested: boolean,
 ): Promise<ArrayBuffer> {
-	// First check if we have it in cache already
+	// Check if we have the original on disk
 	if (await Bun.file(cachePath).exists()) {
-		return await Bun.file(cachePath).arrayBuffer();
+		touchAccessed(cachePath);
+		const original = await Bun.file(cachePath).arrayBuffer();
+		return processImage(original, requestedSize, webpRequested);
 	}
 
+	// Fetch from upstream
 	const url = `https://images.evetech.net/characters/${id}/portrait`;
 	const res = await fetch(url);
 	if (!res.ok) {
 		throw createError({ statusCode: res.status, statusMessage: `Upstream returned ${res.status} for character ${id}` });
 	}
+
 	const eveETag = res.headers.get("ETag");
 	const defaultETag = getDefaultCharacterETag();
 
 	// Check if the returned image is the default (missing) character image
 	if (eveETag === defaultETag) {
-		// Try to get from oldcharacters
 		const oldCharResult = await getOldCharacterImage(id, webpRequested);
-
 		if (oldCharResult.found && oldCharResult.image) {
-			// We found an old character image, process it if needed
 			let processed = oldCharResult.image;
 			if (requestedSize) {
 				processed = await resizeImage(processed, requestedSize);
 			}
-			// Save to the character cache
-			await Bun.file(cachePath).write(processed);
-			// Save cache metadata for background validation
-			await cacheValidator.saveCacheMetadata(cachePath, eveETag);
+			// Still save the original upstream response so we don't re-fetch
+			const original = await res.arrayBuffer();
+			await ensureShardDir(cachePath);
+			await Bun.file(cachePath).write(original);
+			saveMetadata(cachePath, eveETag || 'none', original.byteLength);
 			return processed;
 		}
 	}
 
-	// Either the image from EVE is not the default, or we couldn't find an old character image
+	// Save the original upstream image to disk
 	const original = await res.arrayBuffer();
-	let processed = original;
+	await ensureShardDir(cachePath);
+	await Bun.file(cachePath).write(original);
+	saveMetadata(cachePath, eveETag || 'none', original.byteLength);
 
+	return processImage(original, requestedSize, webpRequested);
+}
+
+async function processImage(
+	original: ArrayBuffer,
+	requestedSize: number | null,
+	webpRequested: boolean,
+): Promise<ArrayBuffer> {
+	let processed = original;
 	if (requestedSize) {
 		processed = await resizeImage(processed, requestedSize);
 	}
 	if (webpRequested) {
 		processed = await convertToWebp(processed);
 	}
-
-	await Bun.file(cachePath).write(processed);
-	// Save cache metadata for background validation
-	await cacheValidator.saveCacheMetadata(cachePath, eveETag);
 	return processed;
 }

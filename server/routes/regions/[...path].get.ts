@@ -1,7 +1,8 @@
-import { generateETagForFile } from "../../utils/hashUtils";
+import { generateETag } from "../../utils/hashUtils";
 import { getHeader, getQuery } from "h3";
 import { convertToWebp } from "../../utils/convertToWebp";
 import { resizeImage } from "../../utils/resizeImage";
+import { lruGet, lruSet, lruKey } from "../../utils/lruCache";
 
 export default defineEventHandler(async (event) => {
 	const path = event.context.params.path;
@@ -11,125 +12,96 @@ export default defineEventHandler(async (event) => {
 		throw createError({ statusCode: 400, statusMessage: 'Region ID is missing' });
 	}
 
-	// Parse query parameters
 	const params = getQuery(event) || {};
 	const sizeParam = params.size ? Number.parseInt(String(params.size), 10) : null;
 
-	// Validate size parameter - limit to 32, 64, 128 and find closest
 	let requestedSize: number | null = null;
 	if (sizeParam) {
 		const validSizes = [32, 64, 128];
 		if (validSizes.includes(sizeParam)) {
 			requestedSize = sizeParam;
 		} else {
-			// Find closest size
-			const closest = validSizes.reduce((prev, curr) => {
-				return Math.abs(curr - sizeParam) < Math.abs(prev - sizeParam) ? curr : prev;
-			});
-			requestedSize = closest;
+			requestedSize = validSizes.reduce((prev, curr) =>
+				Math.abs(curr - sizeParam) < Math.abs(prev - sizeParam) ? curr : prev
+			);
 		}
 	}
 
-	// Check for forced image type
 	const imageType = String(params.imagetype || '').toLowerCase();
-
 	const acceptHeader = getHeader(event, "accept") || "";
 	let webpRequested: boolean;
-
 	if (imageType) {
 		webpRequested = imageType === "webp";
 	} else {
 		webpRequested = acceptHeader.includes("image/webp");
 	}
 
-	const image = await loadOrProcessImage(
-		id,
-		requestedSize,
-		webpRequested,
-	);
+	const desiredFormat = webpRequested ? "webp" : "png";
 
-	if (!image) {
+	const sourcePath = await findSourceImage("regions", id, requestedSize);
+	if (!sourcePath) {
 		throw createError({ statusCode: 404, statusMessage: 'Region image not found' });
 	}
 
-	const desiredExt = webpRequested ? "webp" : "png";
-	const cachePath = requestedSize
-		? `./cache/regions/${id}-${requestedSize}.${desiredExt}`
-		: `./cache/regions/${id}.${desiredExt}`;
+	const needsResize = requestedSize !== null && !sourcePath.endsWith(`_32.png`);
+	const needsProcessing = needsResize || webpRequested;
 
-	const etag = await generateETagForFile(cachePath);
+	if (!needsProcessing) {
+		const image = await Bun.file(sourcePath).arrayBuffer();
+		const etag = await generateETag(sourcePath, null, "png");
+		const ifNoneMatch = getHeader(event, "if-none-match");
+		if (ifNoneMatch && ifNoneMatch === etag) {
+			return new Response(null, { status: 304, headers: { ETag: etag } });
+		}
+		return new Response(image, {
+			headers: makeHeaders(sourcePath, etag, "png"),
+		});
+	}
+
+	const cacheKey = lruKey(sourcePath, requestedSize, desiredFormat);
+	const etag = await generateETag(sourcePath, requestedSize, desiredFormat);
+
 	const ifNoneMatch = getHeader(event, "if-none-match");
-	if (ifNoneMatch === etag) {
+	if (ifNoneMatch && ifNoneMatch === etag) {
 		return new Response(null, { status: 304, headers: { ETag: etag } });
 	}
 
-	return new Response(image, {
-		headers: {
-			"Content-Type": webpRequested ? "image/webp" : "image/png",
-			"Cache-Control": "public, max-age=86400",
-			Vary: "Accept-Encoding",
-			ETag: etag,
-			"Last-Modified": new Date(Bun.file(cachePath).lastModified).toUTCString(),
-			"Accept-Ranges": "bytes",
-			Expires: new Date(Date.now() + 86400 * 1000).toUTCString(),
-		},
+	let processed = lruGet(cacheKey);
+	if (!processed) {
+		let image = await Bun.file(sourcePath).arrayBuffer();
+		if (needsResize && requestedSize) {
+			image = await resizeImage(image, requestedSize);
+		}
+		if (webpRequested) {
+			image = await convertToWebp(image);
+		}
+		processed = image;
+		lruSet(cacheKey, processed);
+	}
+
+	return new Response(processed, {
+		headers: makeHeaders(sourcePath, etag, desiredFormat),
 	});
 });
 
-async function loadOrProcessImage(
-	id: string,
-	requestedSize: number | null,
-	webpRequested: boolean,
-): Promise<ArrayBuffer | null> {
-	const desiredExt = webpRequested ? "webp" : "png";
-	const cachePath = requestedSize
-		? `./cache/regions/${id}-${requestedSize}.${desiredExt}`
-		: `./cache/regions/${id}.${desiredExt}`;
-
-	// Check if we have it in cache already
-	if (await Bun.file(cachePath).exists()) {
-		return await Bun.file(cachePath).arrayBuffer();
-	}
-
-	// Determine which source image to use based on requested size
-	let sourceImagePath: string;
-	let needsResize = false;
+async function findSourceImage(category: string, id: string, requestedSize: number | null): Promise<string | null> {
 	if (requestedSize === 32) {
-		const smallImagePath = `./regions/${id}_32.png`;
-		if (await Bun.file(smallImagePath).exists()) {
-			sourceImagePath = smallImagePath;
-		} else {
-			const mainImagePath = `./regions/${id}.png`;
-			if (await Bun.file(mainImagePath).exists()) {
-				sourceImagePath = mainImagePath;
-				needsResize = true;
-			} else {
-				return null;
-			}
-		}
-	} else {
-		const mainImagePath = `./regions/${id}.png`;
-		if (await Bun.file(mainImagePath).exists()) {
-			sourceImagePath = mainImagePath;
-			needsResize = !!requestedSize;
-		} else {
-			return null;
-		}
+		const smallPath = `./${category}/${id}_32.png`;
+		if (await Bun.file(smallPath).exists()) return smallPath;
 	}
+	const mainPath = `./${category}/${id}.png`;
+	if (await Bun.file(mainPath).exists()) return mainPath;
+	return null;
+}
 
-	let processed = await Bun.file(sourceImagePath).arrayBuffer();
-
-	if (needsResize && requestedSize) {
-		processed = await resizeImage(processed, requestedSize);
-	}
-
-	// Convert to WebP if requested
-	if (webpRequested) {
-		processed = await convertToWebp(processed);
-	}
-
-	// Save to cache
-	await Bun.file(cachePath).write(processed);
-
-	return processed;
+function makeHeaders(sourcePath: string, etag: string, format: string): Record<string, string> {
+	return {
+		"Content-Type": format === "webp" ? "image/webp" : "image/png",
+		"Cache-Control": "public, max-age=86400",
+		Vary: "Accept-Encoding",
+		ETag: etag,
+		"Last-Modified": new Date(Bun.file(sourcePath).lastModified).toUTCString(),
+		"Accept-Ranges": "bytes",
+		Expires: new Date(Date.now() + 86400 * 1000).toUTCString(),
+	};
 }
