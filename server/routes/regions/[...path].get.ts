@@ -46,30 +46,29 @@ export default defineEventHandler(async (event) => {
 	const needsProcessing = needsResize || webpRequested;
 
 	if (!needsProcessing) {
-		const image = await Bun.file(sourcePath).arrayBuffer();
 		const etag = await generateETag(sourcePath, null, "png");
 		const ifNoneMatch = getHeader(event, "if-none-match");
 		if (ifNoneMatch && ifNoneMatch === etag) {
 			return new Response(null, { status: 304, headers: { ETag: etag } });
 		}
+		const image = await Bun.file(sourcePath).arrayBuffer();
 		return new Response(image, {
 			headers: makeHeaders(sourcePath, etag, "png"),
 		});
 	}
 
 	const cacheKey = lruKey(sourcePath, requestedSize, desiredFormat);
-	const etag = await generateETag(sourcePath, requestedSize, desiredFormat);
-
-	const ifNoneMatch = getHeader(event, "if-none-match");
-	if (ifNoneMatch && ifNoneMatch === etag) {
-		return new Response(null, { status: 304, headers: { ETag: etag } });
-	}
-
 	let processed = lruGet(cacheKey);
 	if (!processed) {
 		const image = await Bun.file(sourcePath).arrayBuffer();
 		processed = await processImage(image, needsResize ? requestedSize : null, webpRequested);
 		lruSet(cacheKey, processed);
+	}
+
+	const etag = await generateETag(sourcePath, requestedSize, desiredFormat);
+	const ifNoneMatch = getHeader(event, "if-none-match");
+	if (ifNoneMatch && ifNoneMatch === etag) {
+		return new Response(null, { status: 304, headers: { ETag: etag } });
 	}
 
 	return new Response(processed, {

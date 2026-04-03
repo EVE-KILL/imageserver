@@ -37,7 +37,6 @@ export default defineEventHandler(async (event) => {
 
 	const desiredFormat = webpRequested ? "webp" : "png";
 
-	// Find the source image
 	const sourcePath = await findSourceImage("systems", id, requestedSize);
 	if (!sourcePath) {
 		throw createError({ statusCode: 404, statusMessage: 'System image not found' });
@@ -46,33 +45,32 @@ export default defineEventHandler(async (event) => {
 	const needsResize = requestedSize !== null && !sourcePath.endsWith(`_32.png`);
 	const needsProcessing = needsResize || webpRequested;
 
-	// If no processing needed, serve source directly
+	// No processing needed — serve source directly
 	if (!needsProcessing) {
-		const image = await Bun.file(sourcePath).arrayBuffer();
 		const etag = await generateETag(sourcePath, null, "png");
 		const ifNoneMatch = getHeader(event, "if-none-match");
 		if (ifNoneMatch && ifNoneMatch === etag) {
 			return new Response(null, { status: 304, headers: { ETag: etag } });
 		}
+		const image = await Bun.file(sourcePath).arrayBuffer();
 		return new Response(image, {
 			headers: makeHeaders(sourcePath, etag, "png"),
 		});
 	}
 
-	// Check LRU for processed variant
+	// Check LRU first, then 304
 	const cacheKey = lruKey(sourcePath, requestedSize, desiredFormat);
-	const etag = await generateETag(sourcePath, requestedSize, desiredFormat);
-
-	const ifNoneMatch = getHeader(event, "if-none-match");
-	if (ifNoneMatch && ifNoneMatch === etag) {
-		return new Response(null, { status: 304, headers: { ETag: etag } });
-	}
-
 	let processed = lruGet(cacheKey);
 	if (!processed) {
 		const image = await Bun.file(sourcePath).arrayBuffer();
 		processed = await processImage(image, needsResize ? requestedSize : null, webpRequested);
 		lruSet(cacheKey, processed);
+	}
+
+	const etag = await generateETag(sourcePath, requestedSize, desiredFormat);
+	const ifNoneMatch = getHeader(event, "if-none-match");
+	if (ifNoneMatch && ifNoneMatch === etag) {
+		return new Response(null, { status: 304, headers: { ETag: etag } });
 	}
 
 	return new Response(processed, {

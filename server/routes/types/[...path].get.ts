@@ -1,8 +1,7 @@
 import { getHeader, getQuery } from "h3";
 import { generateETag } from "../../utils/hashUtils";
 import { getShardedPath, ensureShardDir } from "../../utils/cacheUtils";
-import { processImage } from "../../utils/processImage";
-import { applyOverlay } from "../../utils/overlayImage";
+import { processImage, processImageWithOverlay } from "../../utils/processImage";
 import { lruGet, lruSet, lruKey } from "../../utils/lruCache";
 
 // Lazy-loaded data
@@ -47,7 +46,6 @@ export default defineEventHandler(async (event) => {
 	const requestedSize = validSizes.includes(sizeParam) ? sizeParam : null;
 
 	const imageType = String(query.imagetype || '').toLowerCase();
-	delete query.imagetype;
 
 	const acceptHeader = getHeader(event, "accept") || "";
 	let webpRequested: boolean;
@@ -69,16 +67,7 @@ export default defineEventHandler(async (event) => {
 
 	const cacheKey = lruKey(cachePath, requestedSize, desiredFormat);
 
-	// Handle 304
-	if (await Bun.file(cachePath).exists()) {
-		const etag = await generateETag(cachePath, requestedSize, desiredFormat);
-		const ifNoneMatch = getHeader(event, "if-none-match");
-		if (ifNoneMatch && ifNoneMatch === etag) {
-			return new Response(null, { status: 304, headers: { ETag: etag } });
-		}
-	}
-
-	// Check LRU
+	// Check LRU first
 	let processed = lruGet(cacheKey);
 
 	if (!processed) {
@@ -102,6 +91,7 @@ export default defineEventHandler(async (event) => {
 		} else {
 			const upstreamQuery = { ...query };
 			delete upstreamQuery.size;
+			delete upstreamQuery.imagetype;
 			const upstreamParams: Record<string, string> = {};
 			for (const [k, v] of Object.entries(upstreamQuery)) {
 				if (v != null) upstreamParams[k] = String(v);
@@ -117,20 +107,16 @@ export default defineEventHandler(async (event) => {
 		lruSet(cacheKey, processed);
 	}
 
-	const etag = await generateETag(
-		await Bun.file(cachePath).exists() ? cachePath : `./images/${localEntry}`,
-		requestedSize,
-		desiredFormat,
-	);
+	const sourceForEtag = await Bun.file(cachePath).exists() ? cachePath : `./images/${localEntry}`;
+	const etag = await generateETag(sourceForEtag, requestedSize, desiredFormat);
 
 	const ifNoneMatch = getHeader(event, "if-none-match");
 	if (ifNoneMatch && ifNoneMatch === etag) {
 		return new Response(null, { status: 304, headers: { ETag: etag } });
 	}
 
-	const sourceForHeaders = await Bun.file(cachePath).exists() ? cachePath : `./images/${localEntry}`;
 	return new Response(processed, {
-		headers: makeHeaders(sourceForHeaders, etag, desiredFormat, baseExt),
+		headers: makeHeaders(sourceForEtag, etag, desiredFormat, baseExt),
 	});
 });
 
@@ -157,19 +143,23 @@ async function loadOrProcessLocal(
 	webpRequested: boolean,
 	overlayType: string | null,
 ): Promise<ArrayBuffer> {
-	// Check if we have the base (with overlay) cached on disk
+	// If we have a cached base (with overlay), just resize+convert
 	if (await Bun.file(cachePath).exists()) {
 		const base = await Bun.file(cachePath).arrayBuffer();
 		return processImage(base, requestedSize, webpRequested);
 	}
 
-	let base = await Bun.file(sourcePath).arrayBuffer();
+	const base = await Bun.file(sourcePath).arrayBuffer();
 
-	// Apply overlay and cache the result on disk
 	if (overlayType) {
-		base = await applyOverlay(base, overlayType);
+		const overlayPath = `./overlays/${overlayType}.png`;
+		// Single pipeline: overlay + resize + format in one go
+		const result = await processImageWithOverlay(base, overlayPath, requestedSize, webpRequested);
+		// Also cache the base+overlay (without resize/webp) for future size variants
+		const baseWithOverlay = await processImageWithOverlay(base, overlayPath, null, false);
 		await ensureShardDir(cachePath);
-		await Bun.file(cachePath).write(base);
+		await Bun.file(cachePath).write(baseWithOverlay);
+		return result;
 	}
 
 	return processImage(base, requestedSize, webpRequested);
@@ -192,15 +182,18 @@ async function loadOrProcessUpstream(
 		throw createError({ statusCode: res.status, statusMessage: `Upstream returned ${res.status}` });
 	}
 
-	let base = await res.arrayBuffer();
+	const base = await res.arrayBuffer();
 
 	if (overlayType) {
-		base = await applyOverlay(base, overlayType);
+		const overlayPath = `./overlays/${overlayType}.png`;
+		const result = await processImageWithOverlay(base, overlayPath, requestedSize, webpRequested);
+		const baseWithOverlay = await processImageWithOverlay(base, overlayPath, null, false);
+		await ensureShardDir(cachePath);
+		await Bun.file(cachePath).write(baseWithOverlay);
+		return result;
 	}
 
 	await ensureShardDir(cachePath);
 	await Bun.file(cachePath).write(base);
-
 	return processImage(base, requestedSize, webpRequested);
 }
-

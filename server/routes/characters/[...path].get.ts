@@ -6,7 +6,8 @@ import { getDefaultCharacterETag, getOldCharacterImage, initDefaultCharacterETag
 import { saveMetadata, touchAccessed } from "../../utils/metadataDb";
 import { lruGet, lruSet, lruKey } from "../../utils/lruCache";
 
-await initDefaultCharacterETag();
+// Fire-and-forget — don't block module load if EVE API is slow
+initDefaultCharacterETag().catch(err => console.error('Failed to init default character ETag:', err));
 
 export default defineEventHandler(async (event) => {
 	const path = event.context.params.path;
@@ -30,16 +31,10 @@ export default defineEventHandler(async (event) => {
 	const desiredFormat = webpRequested ? "webp" : "jpg";
 	const cachePath = getShardedPath("characters", id, "original");
 
+	// Check LRU first
 	const cacheKey = lruKey(cachePath, requestedSize, desiredFormat);
-	const etag = await generateETag(cachePath, requestedSize, desiredFormat);
-
-	const ifNoneMatch = getHeader(event, "if-none-match");
-	if (ifNoneMatch && ifNoneMatch === etag && await Bun.file(cachePath).exists()) {
-		touchAccessed(cachePath);
-		return new Response(null, { status: 304, headers: { ETag: etag } });
-	}
-
 	let processed = lruGet(cacheKey);
+
 	if (!processed) {
 		processed = await loadOrProcessImage(id, cachePath, requestedSize, webpRequested);
 		lruSet(cacheKey, processed);
@@ -47,14 +42,19 @@ export default defineEventHandler(async (event) => {
 		touchAccessed(cachePath);
 	}
 
-	const finalEtag = await generateETag(cachePath, requestedSize, desiredFormat);
+	// Generate ETag once, after file is guaranteed to exist on disk
+	const etag = await generateETag(cachePath, requestedSize, desiredFormat);
+	const ifNoneMatch = getHeader(event, "if-none-match");
+	if (ifNoneMatch && ifNoneMatch === etag) {
+		return new Response(null, { status: 304, headers: { ETag: etag } });
+	}
 
 	return new Response(processed, {
 		headers: {
 			"Content-Type": webpRequested ? "image/webp" : "image/jpeg",
 			"Cache-Control": "public, max-age=86400",
 			Vary: "Accept-Encoding",
-			ETag: finalEtag,
+			ETag: etag,
 			"Last-Modified": new Date(Bun.file(cachePath).lastModified).toUTCString(),
 			"Accept-Ranges": "bytes",
 			Expires: new Date(Date.now() + 86400 * 1000).toUTCString(),
@@ -74,6 +74,7 @@ async function loadOrProcessImage(
 		return processImage(original, requestedSize, webpRequested);
 	}
 
+	// Fetch from upstream
 	const url = `https://images.evetech.net/characters/${id}/portrait`;
 	const res = await fetch(url);
 	if (!res.ok) {
@@ -81,13 +82,17 @@ async function loadOrProcessImage(
 	}
 
 	const eveETag = res.headers.get("ETag");
+	// Read body once
+	const original = await res.arrayBuffer();
 	const defaultETag = getDefaultCharacterETag();
 
+	// Check if the returned image is the default (missing) character image
 	if (eveETag === defaultETag) {
 		const oldCharResult = await getOldCharacterImage(id, webpRequested);
 		if (oldCharResult.found && oldCharResult.image) {
-			const processed = await processImage(oldCharResult.image, requestedSize, false);
-			const original = await res.arrayBuffer();
+			// Process with correct webp flag
+			const processed = await processImage(oldCharResult.image, requestedSize, webpRequested);
+			// Save the original upstream response so we don't re-fetch
 			await ensureShardDir(cachePath);
 			await Bun.file(cachePath).write(original);
 			saveMetadata(cachePath, eveETag || 'none', original.byteLength);
@@ -95,7 +100,7 @@ async function loadOrProcessImage(
 		}
 	}
 
-	const original = await res.arrayBuffer();
+	// Save the original upstream image to disk
 	await ensureShardDir(cachePath);
 	await Bun.file(cachePath).write(original);
 	saveMetadata(cachePath, eveETag || 'none', original.byteLength);

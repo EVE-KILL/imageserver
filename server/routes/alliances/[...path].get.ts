@@ -26,15 +26,7 @@ export default defineEventHandler(async (event) => {
 
 	const desiredFormat = webpRequested ? "webp" : "png";
 	const cachePath = getShardedPath("alliances", id, "original");
-
 	const cacheKey = lruKey(cachePath, requestedSize, desiredFormat);
-	const etag = await generateETag(cachePath, requestedSize, desiredFormat);
-
-	const ifNoneMatch = getHeader(event, "if-none-match");
-	if (ifNoneMatch && ifNoneMatch === etag && await Bun.file(cachePath).exists()) {
-		touchAccessed(cachePath);
-		return new Response(null, { status: 304, headers: { ETag: etag } });
-	}
 
 	let processed = lruGet(cacheKey);
 	if (!processed) {
@@ -44,14 +36,18 @@ export default defineEventHandler(async (event) => {
 		touchAccessed(cachePath);
 	}
 
-	const finalEtag = await generateETag(cachePath, requestedSize, desiredFormat);
+	const etag = await generateETag(cachePath, requestedSize, desiredFormat);
+	const ifNoneMatch = getHeader(event, "if-none-match");
+	if (ifNoneMatch && ifNoneMatch === etag) {
+		return new Response(null, { status: 304, headers: { ETag: etag } });
+	}
 
 	return new Response(processed, {
 		headers: {
 			"Content-Type": webpRequested ? "image/webp" : "image/png",
 			"Cache-Control": "public, max-age=86400",
 			Vary: "Accept-Encoding",
-			ETag: finalEtag,
+			ETag: etag,
 			"Last-Modified": new Date(Bun.file(cachePath).lastModified).toUTCString(),
 			"Accept-Ranges": "bytes",
 			Expires: new Date(Date.now() + 86400 * 1000).toUTCString(),
