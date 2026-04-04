@@ -43,13 +43,15 @@ export async function processImageWithOverlay(
 	size: number | null,
 	webp: boolean,
 ): Promise<ArrayBuffer> {
-	// Get base image dimensions for overlay scaling
+	// Resize the base image first, then composite the overlay at 10% of output size.
+	// This ensures the overlay scales proportionally: 512→51px, 256→26px, 128→13px, 64→6px
 	const basePipeline = sharp(buffer);
 	const metadata = await basePipeline.metadata();
-	const baseWidth = metadata.width || 64;
-	const targetOverlaySize = Math.max(16, Math.floor(baseWidth / 4));
+	const baseWidth = metadata.width || 512;
+	const outputWidth = size || baseWidth;
+	const targetOverlaySize = Math.max(4, Math.floor(outputWidth / 5));
 
-	// Resize overlay (separate pipeline — necessary since composite needs a buffer)
+	// Resize overlay to target
 	const overlayBuffer = await Bun.file(overlayPath).arrayBuffer();
 	const resizedOverlay = await sharp(overlayBuffer)
 		.resize(targetOverlaySize, targetOverlaySize, {
@@ -60,15 +62,14 @@ export async function processImageWithOverlay(
 		.png()
 		.toBuffer();
 
-	// Single pipeline: composite overlay + resize + format convert
-	let pipeline = sharp(buffer)
-		.composite([{ input: resizedOverlay, top: 0, left: 0 }]);
+	// Resize base first, then composite overlay, then format convert
+	let pipeline = sharp(buffer);
 
-	if (size) {
-		if (baseWidth > size) {
-			pipeline = pipeline.resize(size, size, { fit: 'inside' });
-		}
+	if (size && baseWidth > size) {
+		pipeline = pipeline.resize(size, size, { fit: 'inside' });
 	}
+
+	pipeline = pipeline.composite([{ input: resizedOverlay, top: 0, left: 0 }]);
 
 	if (webp) {
 		pipeline = pipeline.toFormat('webp');

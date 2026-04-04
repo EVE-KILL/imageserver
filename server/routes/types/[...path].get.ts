@@ -61,8 +61,8 @@ export default defineEventHandler(async (event) => {
 	const needsOverlay = type === "overlayrender";
 	const overlayType = needsOverlay ? idToOverlayMap!.get(Number.parseInt(id, 10)) : null;
 
-	// Cache path for the base image (with overlay pre-applied if applicable)
-	const cacheSuffix = overlayType ? `${type}-${overlayType}` : type;
+	// Cache path for the base image (overlay applied on-the-fly per size)
+	const cacheSuffix = overlayType ? `${type}-base` : type;
 	const cachePath = getShardedPath("types", id, `${cacheSuffix}.original`);
 
 	const cacheKey = lruKey(cachePath, requestedSize, desiredFormat);
@@ -143,23 +143,11 @@ async function loadOrProcessLocal(
 	webpRequested: boolean,
 	overlayType: string | null,
 ): Promise<ArrayBuffer> {
-	// If we have a cached base (with overlay), just resize+convert
-	if (await Bun.file(cachePath).exists()) {
-		const base = await Bun.file(cachePath).arrayBuffer();
-		return processImage(base, requestedSize, webpRequested);
-	}
-
 	const base = await Bun.file(sourcePath).arrayBuffer();
 
 	if (overlayType) {
 		const overlayPath = `./overlays/${overlayType}.png`;
-		// Single pipeline: overlay + resize + format in one go
-		const result = await processImageWithOverlay(base, overlayPath, requestedSize, webpRequested);
-		// Also cache the base+overlay (without resize/webp) for future size variants
-		const baseWithOverlay = await processImageWithOverlay(base, overlayPath, null, false);
-		await ensureShardDir(cachePath);
-		await Bun.file(cachePath).write(baseWithOverlay);
-		return result;
+		return processImageWithOverlay(base, overlayPath, requestedSize, webpRequested);
 	}
 
 	return processImage(base, requestedSize, webpRequested);
@@ -172,28 +160,24 @@ async function loadOrProcessUpstream(
 	webpRequested: boolean,
 	overlayType: string | null,
 ): Promise<ArrayBuffer> {
+	// Cache the raw base render on disk (without overlay)
+	let base: ArrayBuffer;
 	if (await Bun.file(cachePath).exists()) {
-		const base = await Bun.file(cachePath).arrayBuffer();
-		return processImage(base, requestedSize, webpRequested);
+		base = await Bun.file(cachePath).arrayBuffer();
+	} else {
+		const res = await fetch(upstreamURL);
+		if (!res.ok) {
+			throw createError({ statusCode: res.status, statusMessage: `Upstream returned ${res.status}` });
+		}
+		base = await res.arrayBuffer();
+		await ensureShardDir(cachePath);
+		await Bun.file(cachePath).write(base);
 	}
-
-	const res = await fetch(upstreamURL);
-	if (!res.ok) {
-		throw createError({ statusCode: res.status, statusMessage: `Upstream returned ${res.status}` });
-	}
-
-	const base = await res.arrayBuffer();
 
 	if (overlayType) {
 		const overlayPath = `./overlays/${overlayType}.png`;
-		const result = await processImageWithOverlay(base, overlayPath, requestedSize, webpRequested);
-		const baseWithOverlay = await processImageWithOverlay(base, overlayPath, null, false);
-		await ensureShardDir(cachePath);
-		await Bun.file(cachePath).write(baseWithOverlay);
-		return result;
+		return processImageWithOverlay(base, overlayPath, requestedSize, webpRequested);
 	}
 
-	await ensureShardDir(cachePath);
-	await Bun.file(cachePath).write(base);
 	return processImage(base, requestedSize, webpRequested);
 }
